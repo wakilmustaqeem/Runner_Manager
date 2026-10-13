@@ -2,6 +2,9 @@ name: Android Debug Build (Manual)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/fm-runner-manager-foundation-2026-10-13
 
 permissions:
   contents: read
@@ -13,7 +16,7 @@ concurrency:
 jobs:
   build:
     name: Build and test debug APK
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 25
     steps:
       - name: Checkout feature branch
