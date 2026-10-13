@@ -10,7 +10,8 @@
 - [x] No credentials, network access, package installation, or runner control in the starter app.
 
 ## Phase 1 — Local diagnostics and package readiness
-- [ ] Define the supported host environments (Android native, Termux, proot/Linux).
+- [x] Document read-only checks and distinguish Android, Termux, and proot/Linux environments.
+- [ ] Define the exact supported execution environments based on compatibility evidence.
 - [ ] Detect tools only in explicitly supported locations; show version and evidence for each detection.
 - [ ] Mark unavailable tools as “not detected”, never silently install them.
 - [ ] Add a per-package approval screen showing source, size if known, permissions, and rollback notes.
