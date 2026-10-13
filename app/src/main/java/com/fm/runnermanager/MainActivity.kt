@@ -1,21 +1,28 @@
 package com.fm.runnermanager
 
 import android.app.Activity
+import android.app.ActivityManager
+import android.app.AlertDialog
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.StatFs
+import android.text.InputType
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import java.util.Locale
 
 class MainActivity : Activity() {
     private val ink = 0xFF172033.toInt()
     private val muted = 0xFF586579.toInt()
     private val panel = 0xFFF3F6FA.toInt()
+    private val preferences by lazy { getSharedPreferences("local_account_aliases", MODE_PRIVATE) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,30 +45,24 @@ class MainActivity : Activity() {
         })
         page.addView(text("Runner overview", 19f, ink, true))
         page.addView(text(
-            "No account is connected yet. Add and verify each identity separately. This starter screen does not register runners or access GitHub.",
+            "This foundation keeps four separate local labels. No GitHub account is connected and no runner is registered yet.",
             14f, muted, false
         ).apply { setPadding(0, dp(8), 0, dp(12)) })
 
-        val accountNames = listOf("Account slot 1", "Account slot 2", "Account slot 3", "Account slot 4")
-        accountNames.forEachIndexed { index, name ->
+        (1..4).forEach { index ->
+            val alias = preferences.getString(aliasKey(index), defaultAlias(index)) ?: defaultAlias(index)
             val card = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(15), dp(14), dp(15), dp(14))
                 setBackgroundColor(panel)
             }
-            card.addView(text(name, 17f, ink, true))
-            card.addView(text("Status: Not connected", 14f, muted, false).apply {
+            card.addView(text(alias, 17f, ink, true))
+            card.addView(text("Runner: Not configured", 14f, muted, false).apply {
                 setPadding(0, dp(5), 0, dp(10))
             })
             card.addView(Button(this).apply {
-                text = "Configure account slot"
-                setOnClickListener {
-                    Toast.makeText(
-                        this@MainActivity,
-                        "Account connection is not implemented yet. Slot " + (index + 1) + " remains disconnected.",
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
+                text = "Edit local label"
+                setOnClickListener { editAlias(index, alias) }
             })
             page.addView(card, marginParams(bottom = 10))
         }
@@ -69,13 +70,7 @@ class MainActivity : Activity() {
         page.addView(text("Device diagnostics", 19f, ink, true).apply {
             setPadding(0, dp(12), 0, dp(8))
         })
-        page.addView(text(
-            "Android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\n" +
-                "Supported ABI: " + (Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown") + "\n" +
-                "External storage: " + (if (Environment.getExternalStorageState() == Environment.MEDIA_MOUNTED) "Available" else "Unavailable") + "\n" +
-                "Package installation: Not attempted",
-            14f, muted, false
-        ).apply {
+        page.addView(text(diagnosticsText(), 14f, muted, false).apply {
             setPadding(dp(14), dp(14), dp(14), dp(14))
             setBackgroundColor(panel)
         }, marginParams(bottom = 12))
@@ -85,10 +80,65 @@ class MainActivity : Activity() {
             setOnClickListener { renderDashboard() }
         })
         page.addView(text(
-            "Safety: no credentials stored • no network calls • no packages installed • no runner jobs started",
+            "Package readiness: not checked • Installation: not attempted",
+            13f, muted, false
+        ).apply { setPadding(0, dp(14), 0, 0) })
+        page.addView(text(
+            "Safety: labels only • no credentials stored • no network calls • no packages installed • no runner jobs started",
             12f, muted, false
-        ).apply { setPadding(0, dp(18), 0, 0) })
+        ).apply { setPadding(0, dp(8), 0, 0) })
     }
+
+    private fun editAlias(index: Int, current: String) {
+        val input = EditText(this).apply {
+            setText(current)
+            hint = defaultAlias(index)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            setSingleLine(true)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Account slot $index label")
+            .setMessage("Save a local display label only. This does not connect or authorize a GitHub account.")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setNeutralButton("Reset") { _, _ ->
+                preferences.edit().remove(aliasKey(index)).apply()
+                renderDashboard()
+            }
+            .setPositiveButton("Save") { _, _ ->
+                val value = input.text.toString().trim().take(48)
+                if (value.isEmpty()) {
+                    preferences.edit().remove(aliasKey(index)).apply()
+                } else {
+                    preferences.edit().putString(aliasKey(index), value).apply()
+                }
+                renderDashboard()
+                Toast.makeText(this, "Local label saved; account remains disconnected.", Toast.LENGTH_SHORT).show()
+            }
+            .show()
+    }
+
+    private fun diagnosticsText(): String {
+        val dataStats = StatFs(Environment.getDataDirectory().absolutePath)
+        val freeBytes = dataStats.availableBytes
+        val totalBytes = dataStats.totalBytes
+        val memoryInfo = ActivityManager.MemoryInfo()
+        (getSystemService(ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(memoryInfo)
+        return "Device: " + Build.MANUFACTURER + " " + Build.MODEL + "\n" +
+            "Android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\n" +
+            "Supported ABI: " + (Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown") + "\n" +
+            "Internal storage free: " + formatBytes(freeBytes) + " / " + formatBytes(totalBytes) + "\n" +
+            "System-reported available RAM: " + formatBytes(memoryInfo.availMem) + "\n" +
+            "External storage state: " + Environment.getExternalStorageState()
+    }
+
+    private fun formatBytes(bytes: Long): String {
+        val gib = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
+        return String.format(Locale.US, "%.2f GiB", gib)
+    }
+
+    private fun aliasKey(index: Int) = "account_slot_$index"
+    private fun defaultAlias(index: Int) = "Account slot $index"
 
     private fun text(value: String, sizeSp: Float, color: Int, bold: Boolean): TextView =
         TextView(this).apply {
