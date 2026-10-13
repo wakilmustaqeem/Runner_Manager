@@ -11,11 +11,16 @@
 
 ## Phase 1 — Local diagnostics and package readiness
 - [x] Document read-only checks and distinguish Android, Termux, and proot/Linux environments.
+- [x] Define safe on-demand package-manager behaviour: detect first, explain, ask approval, install, verify, audit.
 - [ ] Define the exact supported execution environments based on compatibility evidence.
 - [ ] Detect tools only in explicitly supported locations; show version and evidence for each detection.
 - [ ] Mark unavailable tools as “not detected”, never silently install them.
-- [ ] Add a per-package approval screen showing source, size if known, permissions, and rollback notes.
+- [ ] Build the package catalogue and per-package details screen (source, version, size if known, storage estimate, permissions, compatibility, rollback notes).
+- [ ] Add explicit one-package-at-a-time approval and install/verify/result flow.
+- [ ] Implement and test a trusted install adapter for each supported environment before enabling its Install button.
 - [ ] Add timestamped export that avoids credentials and sensitive project content.
+
+Package manager design: see [PACKAGE-MANAGER-DESIGN.md](PACKAGE-MANAGER-DESIGN.md). The design is documented; the app does not install packages yet.
 
 ## Phase 2 — Account isolation
 - [ ] Add a GitHub authorization flow using a supported secure OAuth/device flow.
