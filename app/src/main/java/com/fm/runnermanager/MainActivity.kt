@@ -212,21 +212,17 @@ class MainActivity : Activity() {
         val statuses = arrayOf(
             "UNVERIFIED — not tested",
             "UNSUPPORTED — no safe PHP execution adapter",
-            "BLOCKED_BEFORE_START — billing/permissions/runner gate",
-            "LINT_FAILED — PHP actually ran and reported syntax errors",
-            "PASS — PHP actually ran and reported no syntax errors"
+            "BLOCKED_BEFORE_START — job did not start"
         )
-        val values = arrayOf("UNVERIFIED", "UNSUPPORTED", "BLOCKED_BEFORE_START", "LINT_FAILED", "PASS")
+        val values = arrayOf("UNVERIFIED", "UNSUPPORTED", "BLOCKED_BEFORE_START")
         AlertDialog.Builder(this)
             .setTitle("Record FM Commerce PHP Lint outcome")
-            .setMessage("Choose only the outcome supported by evidence. PASS and LINT_FAILED require a real PHP lint execution. This screen does not execute PHP.")
+            .setMessage("This app cannot execute PHP. PASS and LINT_FAILED are unavailable until a real, evidence-backed PHP execution adapter exists. Record only an unverified, unsupported, or blocked state here.")
             .setItems(statuses) { _, which ->
                 val status = values[which]
                 val note = when (status) {
                     "UNSUPPORTED" -> "No safe PHP execution adapter is implemented in Runner Manager."
                     "BLOCKED_BEFORE_START" -> "Job did not start; no lint result was produced."
-                    "LINT_FAILED" -> "Use only when PHP ran and reported syntax errors."
-                    "PASS" -> "Use only when PHP ran and reported no syntax errors."
                     else -> "No verified PHP lint result."
                 }
                 preferences.edit()
