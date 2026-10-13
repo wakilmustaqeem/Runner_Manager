@@ -81,6 +81,29 @@ class MainActivity : Activity() {
             setBackgroundColor(panel)
         }, marginParams(bottom = 12))
 
+        page.addView(text("FM Commerce • PHP Lint status", 19f, ink, true).apply {
+            setPadding(0, dp(16), 0, dp(8))
+        })
+        page.addView(text(phpLintStatusText(), 14f, muted, false).apply {
+            setPadding(dp(14), dp(14), dp(14), dp(14))
+            setBackgroundColor(panel)
+        }, marginParams(bottom = 8))
+        page.addView(Button(this).apply {
+            text = "Record PHP Lint outcome"
+            setOnClickListener { choosePhpLintOutcome() }
+        })
+        page.addView(Button(this).apply {
+            text = "PHP runtime check (not implemented)"
+            setOnClickListener {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("PHP runtime check unavailable")
+                    .setMessage("Runner Manager has not executed PHP or installed a PHP package. This button is informational only; it does not run a lint job or contact GitHub.")
+                    .setPositiveButton("Close", null)
+                    .show()
+                logAudit("php_runtime_check_unavailable_viewed")
+            }
+        })
+
         page.addView(Button(this).apply {
             text = "Copy diagnostics report"
             setOnClickListener {
@@ -172,7 +195,48 @@ class MainActivity : Activity() {
             "External storage state: " + Environment.getExternalStorageState() + "\n" +
             "GitHub connection: Not configured\n" +
             "Runner registration: Not configured\n" +
-            "Package installation: Not attempted"
+            "Package installation: Not attempted\n" +
+            "FM Commerce PHP Lint result: " + (preferences.getString("php_lint_status", "UNVERIFIED") ?: "UNVERIFIED")
+    }
+
+    private fun phpLintStatusText(): String {
+        val status = preferences.getString("php_lint_status", "UNVERIFIED") ?: "UNVERIFIED"
+        val note = preferences.getString("php_lint_note", "") ?: ""
+        return "Target: fmmustaqeem/fm-commerce-platform\n" +
+            "Result: " + status + "\n" +
+            (if (note.isBlank()) "" else "Note: " + note + "\n") +
+            "This is a locally recorded classification only. No PHP lint was run by this app."
+    }
+
+    private fun choosePhpLintOutcome() {
+        val statuses = arrayOf(
+            "UNVERIFIED — not tested",
+            "BLOCKED_BEFORE_START — billing/permissions/runner gate",
+            "LINT_FAILED — PHP actually ran and reported syntax errors",
+            "PASS — PHP actually ran and reported no syntax errors"
+        )
+        val values = arrayOf("UNVERIFIED", "BLOCKED_BEFORE_START", "LINT_FAILED", "PASS")
+        AlertDialog.Builder(this)
+            .setTitle("Record FM Commerce PHP Lint outcome")
+            .setMessage("Choose only the outcome supported by evidence. PASS and LINT_FAILED require a real PHP lint execution. This screen does not execute PHP.")
+            .setItems(statuses) { _, which ->
+                val status = values[which]
+                val note = when (status) {
+                    "BLOCKED_BEFORE_START" -> "Job did not start; no lint result was produced."
+                    "LINT_FAILED" -> "Use only when PHP ran and reported syntax errors."
+                    "PASS" -> "Use only when PHP ran and reported no syntax errors."
+                    else -> "No verified PHP lint result."
+                }
+                preferences.edit()
+                    .putString("php_lint_status", status)
+                    .putString("php_lint_note", note)
+                    .apply()
+                logAudit("fm_commerce_php_lint_status_recorded_" + status.lowercase(Locale.US))
+                renderDashboard()
+                Toast.makeText(this, "Status recorded locally; no lint job was run.", Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun formatBytes(bytes: Long): String {
