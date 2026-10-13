@@ -14,7 +14,7 @@ Prepare Runner_Manager to diagnose the PHP runtime needed to validate `fmmustaqe
 1. Identify the environment: Android app, Android/Termux shell, Linux host, GitHub-hosted Actions, or an already registered self-hosted runner.
 2. Check whether a trusted local command adapter exists. If it does not, report `UNSUPPORTED`; do not emulate a successful check.
 3. If the user explicitly approves a supported environment check, detect the PHP executable and report its version and path. Do not install anything as part of detection.
-4. Inspect the FM Commerce repository's declared PHP requirements and hosting constraints before selecting a version. Do not assume PHP 8.3 until those sources establish it.
+4. Verified target-repository evidence (read-only): `fmmustaqeem/fm-commerce-platform` README declares `PHP 8.3+`, and `.github/workflows/php-lint.yml` pins `php-version: '8.3'`. The workflow runs `php -l` over `fm-marketplace-core/**/*.php`. The same README's Project Identity section names `wakilmustaqeem/fm-commerce-platform`, which differs from the actual repository being inspected; keep accounts separate and flag this documentation inconsistency for owner review rather than changing it automatically. `composer.json`, `composer.lock`, and `.php-version` were not found at repository root. This evidence supports PHP 8.3 for the existing lint workflow, but does not prove PHP 8.3 is installed on the phone or any self-hosted runner.
 5. Only after the environment and project requirement are verified, propose the smallest test that can run `php -l` on relevant PHP files.
 6. Keep results distinct:
    - `PASS`: PHP actually ran and all targeted syntax checks succeeded.
