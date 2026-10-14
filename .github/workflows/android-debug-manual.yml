@@ -82,23 +82,47 @@ jobs:
           echo "Android SDK component installation failed after three attempts."
           exit 1
 
-      # Extract Gradle with the Java-provided jar tool so this step does not
-      # depend on the runner having the system unzip command installed.
-      - name: Download and extract Gradle 8.9 without unzip
+      # Validate and extract Gradle using Python's standard-library ZIP reader.
+      # This avoids the missing system unzip and prints the exact archive error if invalid.
+      - name: Download, validate, and extract Gradle 8.9
         shell: bash
         run: |
           set -euo pipefail
           archive="$RUNNER_TEMP/gradle-8.9-bin.zip"
           staging="$RUNNER_TEMP/gradle-extract"
           install_dir="$RUNNER_TEMP/gradle-8.9"
+          rm -rf "$staging"
           mkdir -p "$staging"
           curl --fail --location --show-error \
             --connect-timeout 30 --max-time 900 \
             --retry 8 --retry-all-errors --retry-delay 10 \
             "https://services.gradle.org/distributions/gradle-8.9-bin.zip" \
             --output "$archive"
-          (cd "$staging" && "$JAVA_HOME/bin/jar" xf "$archive")
-          test -x "$staging/gradle-8.9/bin/gradle"
+          echo "Downloaded archive details:"
+          ls -lh "$archive"
+          sha256sum "$archive"
+          python3 - "$archive" "$staging" <<'PY'
+          import os
+          import sys
+          import zipfile
+
+          archive, staging = sys.argv[1], sys.argv[2]
+          print(f"Python ZIP validation: {zipfile.is_zipfile(archive)}")
+          if not zipfile.is_zipfile(archive):
+              raise SystemExit("Downloaded Gradle archive is not a valid ZIP file.")
+          with zipfile.ZipFile(archive) as zf:
+              bad_member = zf.testzip()
+              if bad_member:
+                  raise SystemExit(f"Corrupt ZIP member: {bad_member}")
+              print(f"ZIP members: {len(zf.infolist())}")
+              zf.extractall(staging)
+          print("Gradle archive extraction completed.")
+          PY
+          if [ ! -x "$staging/gradle-8.9/bin/gradle" ]; then
+            echo "Expected Gradle launcher was not extracted."
+            find "$staging" -maxdepth 4 -type f | head -80
+            exit 1
+          fi
           rm -rf "$install_dir"
           mv "$staging/gradle-8.9" "$install_dir"
           echo "$install_dir/bin" >> "$GITHUB_PATH"
