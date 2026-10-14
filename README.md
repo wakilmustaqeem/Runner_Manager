@@ -45,7 +45,7 @@ See [GITHUB-RUNNER-ADAPTER-DESIGN.md](docs/GITHUB-RUNNER-ADAPTER-DESIGN.md) for 
 
 ## Verification status
 
-This remains a **foundation scaffold, not a production runner manager**. A debug APK build was verified by GitHub Actions on feature branch `feat/live-runner-dashboard-v1-2026-10-14` (run `38541401792`, commit `340568223e4cc771f92e80393b2387292cf62ebd`). Device installation/runtime testing is still pending. GitHub OAuth, Android Keystore-backed credential storage, live runner monitoring, package installation, and APK signing remain unimplemented. Do not paste secrets into Issues, commits, or chat.
+This remains a **foundation scaffold, not a production runner manager**. Debug APK builds were verified on feature branch `feat/live-runner-dashboard-v1-2026-10-14`, including run `38553960072` at commit `e823caa0637533766c229610e8ec85a969bdc62c`. A follow-up fail-closed policy correction is being built separately. Device installation/runtime testing is still pending. GitHub OAuth, Android Keystore-backed credential storage, live runner monitoring, package installation, and APK signing remain unimplemented. Do not paste secrets into Issues, commits, or chat.
 
 ## Development approach
 

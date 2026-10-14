@@ -94,7 +94,19 @@ object PolicyGate {
         if (conditions.batteryPercent < policy.minimumBatteryPercent) reasons += "Battery below minimum"
         val maxTemp = policy.maximumTemperatureCelsius
         val actualTemp = conditions.temperatureCelsius
-        if (maxTemp != null && actualTemp != null && actualTemp > maxTemp) reasons += "Temperature above limit"
+        if (policy.minimumBatteryPercent !in 0..100) reasons += "Invalid battery threshold"
+        if (policy.minimumFreeStorageBytes < 0L) reasons += "Invalid storage threshold"
+        if (maxTemp != null) {
+            if (!maxTemp.isFinite()) {
+                reasons += "Invalid temperature threshold"
+            } else if (actualTemp == null || !actualTemp.isFinite()) {
+                reasons += "Temperature unavailable; fail closed"
+            } else if (actualTemp > maxTemp) {
+                reasons += "Temperature above limit"
+            }
+        }
+        if (conditions.batteryPercent !in 0..100) reasons += "Invalid battery reading"
+        if (conditions.freeStorageBytes < 0L) reasons += "Invalid storage reading"
         if (conditions.freeStorageBytes < policy.minimumFreeStorageBytes) reasons += "Free storage below minimum"
         return PolicyDecision(allowed = reasons.isEmpty(), reasons = reasons)
     }

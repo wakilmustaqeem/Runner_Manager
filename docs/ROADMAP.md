@@ -24,6 +24,8 @@ Package manager design: see [PACKAGE-MANAGER-DESIGN.md](PACKAGE-MANAGER-DESIGN.m
 
 ## Phase 2 — Account isolation
 - [x] Document the safe GitHub/DroidRunner adapter boundary and compatibility gates (design only; no live integration enabled).
+- [x] Add adapter contracts and a local policy evaluator; missing/invalid temperature data must deny when a temperature ceiling is configured.
+- [ ] Add automated policy-gate tests once an approved test dependency/setup is available.
 - [ ] Add a GitHub authorization flow using a supported secure OAuth/device flow.
 - [ ] Store authorization material only in Android Keystore-backed storage.
 - [ ] Keep one credential vault and runner work/config directory per identity.
@@ -39,7 +41,8 @@ Package manager design: see [PACKAGE-MANAGER-DESIGN.md](PACKAGE-MANAGER-DESIGN.m
 - [ ] Add manual start/stop and recovery controls with confirmation and audit events.
 
 ## Phase 4 — Build and release
-- [x] Build debug APK in GitHub Actions on the feature branch (run 38541401792, commit 340568223e4cc771f92e80393b2387292cf62ebd).
+- [x] Build debug APK in GitHub Actions on the feature branch (run 38553960072, commit e823caa0637533766c229610e8ec85a969bdc62c).
+- [ ] Rebuild and verify the fail-closed policy correction.
 - [ ] Add reproducible Gradle wrapper files and verify the build from a clean checkout.
 - [ ] Test install, launch, rotation, low storage, and interrupted network on the Nubia Neo 2 device.
 - [ ] Sign release APK only with a user-controlled signing key that is never committed.
