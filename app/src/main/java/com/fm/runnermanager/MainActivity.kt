@@ -178,6 +178,7 @@ class MainActivity : Activity() {
                     .setTitle("Runner integration not implemented")
                     .setMessage("This build does not connect to GitHub or control DroidRunner. No runner is started or stopped by this screen. Add and authorize a dedicated adapter before enabling live job data or controls.")
                     .setPositiveButton("Close", null).show()
+                recordActivity("runner_integration_unavailable_viewed")
                 logAudit("runner_integration_unavailable_viewed")
             }
         })
@@ -213,6 +214,7 @@ class MainActivity : Activity() {
             setOnClickListener {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("FM Runner Manager diagnostics", diagnosticsText()))
+                recordActivity("diagnostics_copied")
                 logAudit("diagnostics_copied")
                 Toast.makeText(this@MainActivity, "Local diagnostics copied; no tokens included.", Toast.LENGTH_SHORT).show()
             }
@@ -342,6 +344,7 @@ class MainActivity : Activity() {
             isChecked = policyPreferences.getBoolean(key, false)
             setOnCheckedChangeListener { _, checked ->
                 policyPreferences.edit().putBoolean(key, checked).apply()
+                recordActivity("local_policy_" + key + "_" + if (checked) "enabled" else "disabled")
                 logAudit("local_policy_" + key + "_" + if (checked) "enabled" else "disabled")
             }
         }, marginParams(bottom = 2))
@@ -359,6 +362,7 @@ class MainActivity : Activity() {
             override fun onItemSelected(parentView: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 if (initial) { initial = false; return }
                 policyPreferences.edit().putInt(key, values[position]).apply()
+                recordActivity("local_policy_" + key + "_changed")
                 logAudit("local_policy_" + key + "_changed")
             }
         }
@@ -378,6 +382,7 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancel", null)
             .setNeutralButton("Reset") { _, _ ->
                 preferences.edit().remove(aliasKey(index)).apply()
+                recordActivity("account_slot_" + index + "_label_reset")
                 logAudit("account_slot_" + index + "_label_reset")
                 renderDashboard()
             }
@@ -385,9 +390,11 @@ class MainActivity : Activity() {
                 val value = input.text.toString().trim().take(48)
                 if (value.isEmpty()) {
                     preferences.edit().remove(aliasKey(index)).apply()
+                    recordActivity("account_slot_" + index + "_label_cleared")
                     logAudit("account_slot_" + index + "_label_cleared")
                 } else {
                     preferences.edit().putString(aliasKey(index), value).apply()
+                    recordActivity("account_slot_" + index + "_label_saved")
                     logAudit("account_slot_" + index + "_label_saved")
                 }
                 renderDashboard()
@@ -418,6 +425,15 @@ class MainActivity : Activity() {
         val old = auditPreferences.getString("entries", "") ?: ""
         val next = (listOf(stamp + " | " + action) + old.lines().filter { it.isNotBlank() }).take(100)
         auditPreferences.edit().putString("entries", next.joinToString("\n")).apply()
+        val result = when {
+            action.contains("unavailable", ignoreCase = true) -> "Unavailable"
+            action.contains("failed", ignoreCase = true) || action.contains("error", ignoreCase = true) -> "Failed"
+            listOf("copied", "saved", "reset", "enabled", "disabled", "changed", "cleared").any { action.contains(it, ignoreCase = true) } -> "Success"
+            else -> "Recorded"
+        }
+    }
+
+    private fun recordActivity(action: String) {
         val result = when {
             action.contains("unavailable", ignoreCase = true) -> "Unavailable"
             action.contains("failed", ignoreCase = true) || action.contains("error", ignoreCase = true) -> "Failed"
