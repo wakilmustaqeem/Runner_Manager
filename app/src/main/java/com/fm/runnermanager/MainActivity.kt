@@ -6,6 +6,7 @@ import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
@@ -34,12 +35,15 @@ import java.util.Locale
 
 /** Local-first dashboard. Live GitHub/job data and runner controls require a future authorized adapter. */
 class MainActivity : Activity() {
-    private val ink = 0xFF172033.toInt()
-    private val muted = 0xFF586579.toInt()
-    private val panel = 0xFFF3F6FA.toInt()
-    private val accent = 0xFF2457A7.toInt()
+    private val ink = 0xFFEAF2FF.toInt()
+    private val muted = 0xFF9FB2CC.toInt()
+    private val panel = 0xFF13243B.toInt()
+    private val accent = 0xFF45D7E8.toInt()
+    private val background = 0xFF081426.toInt()
+    private val border = 0xFF29435F.toInt()
     private val preferences by lazy { getSharedPreferences("local_account_aliases", MODE_PRIVATE) }
     private val auditPreferences by lazy { getSharedPreferences("local_audit_metadata", MODE_PRIVATE) }
+    private val historyPreferences by lazy { getSharedPreferences("local_activity_history", MODE_PRIVATE) }
     private val policyPreferences by lazy { getSharedPreferences("local_runner_policy", MODE_PRIVATE) }
     private val handler = Handler(Looper.getMainLooper())
     private var cpuLabel: TextView? = null
@@ -79,14 +83,30 @@ class MainActivity : Activity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(22), dp(18), dp(28))
-            setBackgroundColor(0xFFFFFFFF.toInt())
+            setBackgroundColor(background)
         }
         scroll.addView(root)
         setContentView(scroll)
 
-        root.addView(text("FM Runner Manager", 27f, ink, true))
-        root.addView(text("Local-first • Live device dashboard • Four isolated accounts", 13f, muted, false)
-            .apply { setPadding(0, dp(5), 0, dp(16)) })
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(18), dp(18), dp(18))
+            setBackgroundColor(panel)
+        }
+        hero.addView(text("FM RUNNER MANAGER", 25f, ink, true))
+        hero.addView(text("LOCAL-FIRST • SAFE CONTROL", 12f, accent, true).apply { setPadding(0, dp(6), 0, dp(8)) })
+        hero.addView(text("Device health, account slots, activity history and security audit — together in one workspace.", 13f, muted, false))
+        root.addView(hero, marginParams(bottom = 12))
+        val quickActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        quickActions.addView(Button(this).apply {
+            text = "History"
+            setOnClickListener { showHistory() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
+        quickActions.addView(Button(this).apply {
+            text = "Audit Log"
+            setOnClickListener { showAuditLog() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
+        root.addView(quickActions, marginParams(bottom = 8))
 
         section(root, "Device health")
         val metrics = LinearLayout(this).apply {
@@ -187,7 +207,7 @@ class MainActivity : Activity() {
         addChoice(root, "Maximum thermal policy", "max_thermal", arrayOf("None", "Light", "Moderate"), arrayOf(0, 1, 2), 2)
         addChoice(root, "Minimum free storage", "min_free_mb", arrayOf("512 MB", "1 GB", "2 GB", "5 GB"), arrayOf(512, 1024, 2048, 5120), 5120)
 
-        section(root, "Diagnostics & audit")
+        section(root, "Diagnostics & security")
         root.addView(Button(this).apply {
             text = "Copy device diagnostics"
             setOnClickListener {
@@ -197,6 +217,7 @@ class MainActivity : Activity() {
                 Toast.makeText(this@MainActivity, "Local diagnostics copied; no tokens included.", Toast.LENGTH_SHORT).show()
             }
         })
+        root.addView(Button(this).apply { text = "Open Activity History"; setOnClickListener { showHistory() } })
         root.addView(Button(this).apply { text = "View local audit log"; setOnClickListener { showAuditLog() } })
         root.addView(Button(this).apply {
             text = "Refresh device metrics"
@@ -360,7 +381,133 @@ class MainActivity : Activity() {
     private fun logAudit(action: String) {
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val old = auditPreferences.getString("entries", "") ?: ""
-        val next = (listOf(stamp + " | " + action) + old.lines().filter { it.isNotBlank() }).take(50)
+        val next = (listOf(stamp + " | " + action) + old.lines().filter { it.isNotBlank() }).take(100)
+        auditPreferences.edit().putString("entries", next.joinToString("\n")).apply()
+        logHistory(action, "Recorded", selectedAccount)
+    }
+
+    private fun logHistory(action: String, result: String, accountSlot: Int) {
+        val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        val safeAction = action.replace("|", "/").take(80)
+        val safeResult = result.replace("|", "/").take(60)
+        val entry = listOf(stamp, safeAction, safeResult, "Slot " + accountSlot.coerceIn(1, 4)).joinToString("|")
+        val old = historyPreferences.getString("entries", "") ?: ""
+        val next = (listOf(entry) + old.lines().filter { it.isNotBlank() }).take(200)
+        historyPreferences.edit().putString("entries", next.joinToString("\n")).apply()
+    }
+
+    private fun showHistory() {
+        val wrapper = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(8), dp(18), dp(8))
+        }
+        val search = EditText(this).apply {
+            hint = "Search action, result, account slot…"
+            setSingleLine(true)
+        }
+        val actionFilter = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
+                listOf("All actions", "account", "diagnostics", "policy", "runner", "history"))
+        }
+        val resultFilter = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
+                listOf("All results", "Recorded", "Success", "Failed", "Unavailable"))
+        }
+        val results = TextView(this).apply {
+            textSize = 12f
+            setTextColor(ink)
+            setPadding(0, dp(10), 0, dp(10))
+        }
+        val clearButton = Button(this).apply {
+            text = "Clear History…"
+            setOnClickListener {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Clear activity history?")
+                    .setMessage("This permanently removes local History entries. The separate Security Audit Log will not be cleared.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Clear History") { _, _ ->
+                        historyPreferences.edit().remove("entries").apply()
+                        logAuditWithoutHistory("history_cleared_after_confirmation")
+                        results.text = "History is empty. Audit Log remains separate and unchanged."
+                    }.show()
+            }
+        }
+        fun render() {
+            val query = search.text.toString().trim().lowercase(Locale.ROOT)
+            val action = actionFilter.selectedItem?.toString() ?: "All actions"
+            val outcome = resultFilter.selectedItem?.toString() ?: "All results"
+            val entries = (historyPreferences.getString("entries", "") ?: "").lines()
+                .filter { it.isNotBlank() }
+                .filter { row ->
+                    val fields = row.split("|")
+                    val actionText = fields.getOrElse(1) { "" }
+                    val resultText = fields.getOrElse(2) { "" }
+                    row.lowercase(Locale.ROOT).contains(query) &&
+                        (action == "All actions" || actionText.contains(action, ignoreCase = true)) &&
+                        (outcome == "All results" || resultText.equals(outcome, ignoreCase = true))
+                }
+            results.text = if (entries.isEmpty()) "No matching history entries.\n\nHistory stores metadata only — never passwords, tokens, or message contents."
+                else entries.joinToString("\n\n") { row ->
+                    val parts = row.split("|")
+                    "TIME   " + parts.getOrElse(0) { "Unknown" } + "\nACTION " + parts.getOrElse(1) { "Unknown" } +
+                        "\nRESULT " + parts.getOrElse(2) { "Unknown" } + "\nSLOT   " + parts.getOrElse(3) { "Unknown" }
+                }
+        }
+        search.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = render()
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
+        actionFilter.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) = render()
+        }
+        resultFilter.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) = render()
+        }
+        wrapper.addView(search)
+        wrapper.addView(actionFilter)
+        wrapper.addView(resultFilter)
+        val scroller = ScrollView(this).apply { addView(results) }
+        wrapper.addView(scroller, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)))
+        wrapper.addView(clearButton)
+        render()
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Activity History")
+            .setView(wrapper)
+            .setPositiveButton("Copy", null)
+            .setNeutralButton("Export / Share", null)
+            .setNegativeButton("Close", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val text = results.text.toString()
+                (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                    .setPrimaryClip(ClipData.newPlainText("FM Runner Manager History", text))
+                logAuditWithoutHistory("history_copied")
+                Toast.makeText(this, "Filtered history copied.", Toast.LENGTH_SHORT).show()
+            }
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val body = (historyPreferences.getString("entries", "") ?: "").lines()
+                    .filter { it.isNotBlank() }
+                    .joinToString("\n") { it.replace("|", ",") }
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/csv"
+                    putExtra(Intent.EXTRA_SUBJECT, "FM Runner Manager Activity History")
+                    putExtra(Intent.EXTRA_TEXT, "time,action,result,account_slot\n" + body)
+                }
+                logAuditWithoutHistory("history_export_share_opened")
+                startActivity(Intent.createChooser(send, "Export History"))
+            }
+        }
+        dialog.show()
+    }
+
+    private fun logAuditWithoutHistory(action: String) {
+        val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        val old = auditPreferences.getString("entries", "") ?: ""
+        val next = (listOf(stamp + " | " + action) + old.lines().filter { it.isNotBlank() }).take(100)
         auditPreferences.edit().putString("entries", next.joinToString("\n")).apply()
     }
 
