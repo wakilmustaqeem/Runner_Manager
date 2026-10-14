@@ -160,6 +160,7 @@ class MainActivity : Activity() {
                 }
             }
         }
+        accountSpinner.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
         root.addView(accountSpinner, marginParams(bottom = 8))
         val accountActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         accountActions.addView(Button(this).apply {
