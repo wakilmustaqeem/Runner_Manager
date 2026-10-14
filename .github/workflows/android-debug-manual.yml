@@ -1,51 +1,56 @@
-name: Android Debug Build (Manual)
+name: Local Mobile Runner SDK Diagnostics
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - feat/fm-runner-manager-foundation-2026-10-13
+      - feat/local-runner-sdk-diagnostics-2026-10-14
+    paths:
+      - '.github/workflows/android-debug-manual.yml'
 
 permissions:
   contents: read
 
 concurrency:
-  group: runner-manager-android-build
+  group: runner-manager-local-sdk-diagnostics
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build and test debug APK
+  diagnose:
+    name: Inspect local Android build tools
     runs-on: self-hosted
-    timeout-minutes: 25
+    timeout-minutes: 5
     steps:
-      - name: Checkout feature branch
+      - name: Checkout diagnostic branch
         uses: actions/checkout@v4
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install required Android SDK components
-        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Set up Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-
-      - name: Build debug APK and run available unit tests
-        run: gradle --no-daemon assembleDebug testDebugUnitTest
-
-      - name: Upload debug APK (7-day retention)
-        uses: actions/upload-artifact@v4
-        with:
-          name: fm-runner-manager-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 7
+      - name: Inspect runner environment without downloading SDKs
+        shell: bash
+        run: |
+          set +e
+          echo "=== Device/runtime ==="
+          uname -a
+          echo "RUNNER_OS=${RUNNER_OS:-unknown}"
+          echo "RUNNER_ARCH=${RUNNER_ARCH:-unknown}"
+          echo "=== Java ==="
+          command -v java || true
+          java -version 2>&1 || true
+          echo "=== Gradle ==="
+          command -v gradle || true
+          gradle --version 2>&1 | head -n 12 || true
+          echo "=== Android SDK environment ==="
+          echo "ANDROID_HOME=${ANDROID_HOME:-unset}"
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+          echo "=== sdkmanager locations ==="
+          command -v sdkmanager || true
+          for d in "${ANDROID_HOME:-}" "${ANDROID_SDK_ROOT:-}" "$HOME/Android/Sdk" "$HOME/android-sdk" /opt/android-sdk /usr/lib/android-sdk; do
+            if [ -n "$d" ] && [ -d "$d" ]; then
+              echo "FOUND_SDK_DIR=$d"
+              ls -la "$d" | head -n 20
+              [ ! -d "$d/platforms" ] || ls -1 "$d/platforms"
+              [ ! -d "$d/build-tools" ] || ls -1 "$d/build-tools"
+            fi
+          done
+          echo "=== Gradle project files ==="
+          find . -maxdepth 3 \( -name 'settings.gradle' -o -name 'settings.gradle.kts' -o -name 'build.gradle' -o -name 'build.gradle.kts' -o -name 'gradlew' \) -print | head -n 40
+          echo "Diagnostics complete; no SDK packages were downloaded or installed."
