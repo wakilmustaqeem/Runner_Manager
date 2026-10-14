@@ -82,10 +82,27 @@ jobs:
           echo "Android SDK component installation failed after three attempts."
           exit 1
 
-      - name: Set up Gradle 8.9
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
+      # Extract Gradle with the Java-provided jar tool so this step does not
+      # depend on the runner having the system unzip command installed.
+      - name: Download and extract Gradle 8.9 without unzip
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gradle-8.9-bin.zip"
+          staging="$RUNNER_TEMP/gradle-extract"
+          install_dir="$RUNNER_TEMP/gradle-8.9"
+          mkdir -p "$staging"
+          curl --fail --location --show-error \\
+            --connect-timeout 30 --max-time 900 \\
+            --retry 8 --retry-all-errors --retry-delay 10 \\
+            "https://services.gradle.org/distributions/gradle-8.9-bin.zip" \\
+            --output "$archive"
+          (cd "$staging" && "$JAVA_HOME/bin/jar" xf "$archive")
+          test -x "$staging/gradle-8.9/bin/gradle"
+          rm -rf "$install_dir"
+          mv "$staging/gradle-8.9" "$install_dir"
+          echo "$install_dir/bin" >> "$GITHUB_PATH"
+          "$install_dir/bin/gradle" --version
 
       - name: Build debug APK and run available unit tests
         run: gradle --no-daemon assembleDebug testDebugUnitTest
