@@ -17,14 +17,14 @@ concurrency:
 
 jobs:
   diagnose:
-    name: Inspect local Android build tools
+    name: Inspect local Android build tools and download reachability
     runs-on: self-hosted
     timeout-minutes: 5
     steps:
       - name: Checkout diagnostic branch
         uses: actions/checkout@v4
 
-      - name: Inspect runner environment without downloading SDKs
+      - name: Inspect runner environment and network without installing tools
         shell: bash
         run: |
           set +e
@@ -50,6 +50,11 @@ jobs:
               [ ! -d "$d/platforms" ] || ls -1 "$d/platforms"
               [ ! -d "$d/build-tools" ] || ls -1 "$d/build-tools"
             fi
+          done
+          echo "=== Network reachability (HEAD, 10-second cap) ==="
+          for url in "https://dl.google.com/android/repository/repository2-1.xml" "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip" "https://dl.google.com/dl/android/maven2/" "https://services.gradle.org/distributions/gradle-8.9-bin.zip" "https://github.com/actions/checkout"; do
+            echo "--- $url"
+            curl -IL --connect-timeout 5 --max-time 10 --silent --show-error -o /dev/null -w "http_code=%{http_code} connect=%{time_connect}s total=%{time_total}s remote_ip=%{remote_ip}\n" "$url" 2>&1 || true
           done
           echo "=== Gradle project files ==="
           find . -maxdepth 3 \( -name 'settings.gradle' -o -name 'settings.gradle.kts' -o -name 'build.gradle' -o -name 'build.gradle.kts' -o -name 'gradlew' \) -print | head -n 40
