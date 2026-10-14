@@ -59,6 +59,7 @@ jobs:
           mv "$cmdline_tools_dir" "$ANDROID_HOME/cmdline-tools/latest"
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          chmod +x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
 
       - name: Accept licenses and install Android SDK components
