@@ -65,6 +65,8 @@ class MainActivity : Activity() {
     private val githubTokensBySlot = mutableMapOf<Int, String>()
     private val githubReposBySlot = mutableMapOf<Int, List<GitHubDeviceFlowClient.Repository>>()
     private val githubClientIds = mutableMapOf<Int, String>()
+    private val githubLoginsBySlot = mutableMapOf<Int, String>()
+    private val selectedRepositoryBySlot = mutableMapOf<Int, String>()
     private var githubStatusLabel: TextView? = null
 
     private val refreshTask = object : Runnable {
@@ -143,24 +145,48 @@ class MainActivity : Activity() {
         root.addView(metrics, marginParams(bottom = 12))
 
         section(root, "Account & repository")
-        root.addView(text("Choose a local slot. Real repository names require explicit authorization for that account.", 13f, muted, false)
+        root.addView(text("Add as many GitHub accounts as you need. Each account authorizes independently; only repositories visible to that account are listed.", 13f, muted, false)
             .apply { setPadding(0, 0, 0, dp(7)) })
-        val accounts = (1..4).map { index ->
-            val alias = preferences.getString(aliasKey(index), defaultAlias(index)) ?: defaultAlias(index)
-            "Slot " + index + " • " + alias
-        }
-        val accountSpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, accounts)
-            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
-                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    selectedAccount = position + 1
+        val accountSpinner = Spinner(this)
+        accountSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, accountLabels())
+        accountSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val ids = accountIds()
+                if (position in ids.indices) {
+                    selectedAccount = ids[position]
                     updateRepositorySpinner()
+                    updateGitHubConnectionLabel()
                 }
             }
         }
         root.addView(accountSpinner, marginParams(bottom = 8))
-        repoSpinner = Spinner(this)
+        val accountActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        accountActions.addView(Button(this).apply {
+            text = "Add account"
+            setOnClickListener { addAccount() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
+        accountActions.addView(Button(this).apply {
+            text = "Disconnect / remove"
+            setOnClickListener { removeSelectedAccount() }
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
+        root.addView(accountActions, marginParams(bottom = 8))
+        repoSpinner = Spinner(this).apply {
+            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
+                    selectedRepositoryBySlot.remove(selectedAccount)
+                }
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    val repos = githubReposBySlot[selectedAccount].orEmpty()
+                    if (position in repos.indices) {
+                        val repo = repos[position]
+                        selectedRepositoryBySlot[selectedAccount] = repo.owner + "/" + repo.name
+                    } else {
+                        selectedRepositoryBySlot.remove(selectedAccount)
+                    }
+                }
+            }
+        }
         root.addView(repoSpinner, marginParams(bottom = 8))
         updateRepositorySpinner()
         root.addView(Button(this).apply {
@@ -276,6 +302,60 @@ class MainActivity : Activity() {
             setStroke(dp(1), border)
         }
 
+    private fun accountIds(): List<Int> {
+        val raw = preferences.getString("account_ids", "1").orEmpty()
+        val ids = raw.split(",").mapNotNull { it.trim().toIntOrNull() }.filter { it > 0 }.distinct()
+        return ids.ifEmpty { listOf(1) }
+    }
+
+    private fun saveAccountIds(ids: List<Int>) {
+        preferences.edit().putString("account_ids", ids.distinct().filter { it > 0 }.joinToString(",")).apply()
+    }
+
+    private fun accountLabels(): List<String> = accountIds().map { id ->
+        val alias = preferences.getString(aliasKey(id), defaultAlias(id)) ?: defaultAlias(id)
+        val login = githubLoginsBySlot[id]
+        "Account " + id + " • " + (login ?: alias) + if (githubTokensBySlot.containsKey(id)) " • connected" else ""
+    }
+
+    private fun addAccount() {
+        val ids = accountIds()
+        val nextId = (ids.maxOrNull() ?: 0) + 1
+        saveAccountIds(ids + nextId)
+        selectedAccount = nextId
+        recordActivity("github_account_entry_added")
+        logAudit("github_account_entry_added")
+        renderDashboard()
+        Toast.makeText(this, "Account entry added. Connect it to authorize GitHub.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun removeSelectedAccount() {
+        val ids = accountIds()
+        if (ids.size <= 1) {
+            Toast.makeText(this, "Keep at least one account entry. Add another before removing this one.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val id = selectedAccount
+        AlertDialog.Builder(this)
+            .setTitle("Disconnect and remove account?")
+            .setMessage("This clears the account's in-memory token, repository list and local label from this app. It does not revoke authorization at GitHub; revoke the app in GitHub settings if needed.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Remove") { _, _ ->
+                githubTokensBySlot.remove(id)
+                githubReposBySlot.remove(id)
+                githubClientIds.remove(id)
+                githubLoginsBySlot.remove(id)
+                selectedRepositoryBySlot.remove(id)
+                preferences.edit().remove(aliasKey(id)).apply()
+                val remaining = ids.filterNot { it == id }
+                saveAccountIds(remaining)
+                selectedAccount = remaining.first()
+                recordActivity("github_account_removed_local_session_cleared")
+                logAudit("github_account_removed_local_session_cleared")
+                renderDashboard()
+            }.show()
+    }
+
     private fun updateRepositorySpinner() {
         val spinner = repoSpinner ?: return
         val repos = githubReposBySlot[selectedAccount].orEmpty()
@@ -283,6 +363,20 @@ class MainActivity : Activity() {
             else repos.map { it.owner + "/" + it.name + if (it.isPrivate) " • private" else " • public" }
         spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
         spinner.isEnabled = repos.isNotEmpty()
+        val selected = selectedRepositoryBySlot[selectedAccount]
+        val index = repos.indexOfFirst { it.owner + "/" + it.name == selected }
+        if (index >= 0) spinner.setSelection(index)
+        else if (repos.isNotEmpty()) {
+            spinner.setSelection(0)
+            selectedRepositoryBySlot[selectedAccount] = repos.first().owner + "/" + repos.first().name
+        }
+    }
+
+    private fun updateGitHubConnectionLabel() {
+        val login = githubLoginsBySlot[selectedAccount]
+        githubStatusLabel?.text = if (githubTokensBySlot.containsKey(selectedAccount) && login != null)
+            "GitHub connection: " + login + " • read-only"
+        else "GitHub connection: Not connected"
     }
 
     private fun beginGitHubConnection() {
@@ -293,7 +387,7 @@ class MainActivity : Activity() {
             setText(githubClientIds[slot].orEmpty())
         }
         AlertDialog.Builder(this)
-            .setTitle("Connect GitHub account slot " + slot)
+            .setTitle("Connect GitHub account " + slot)
             .setMessage("Enter the Client ID of your registered GitHub App with Device Flow enabled. Do not enter a PAT, client secret, or runner token.")
             .setView(input)
             .setNegativeButton("Cancel", null)
@@ -313,7 +407,7 @@ class MainActivity : Activity() {
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     AlertDialog.Builder(this)
-                        .setTitle("Authorize GitHub slot " + slot)
+                        .setTitle("Authorize GitHub account " + slot)
                         .setMessage("Open " + device.verificationUri + "\nEnter one-time code:\n" + device.userCode + "\n\nApprove only the intended GitHub account.")
                         .setPositiveButton("Open page & wait") { _, _ ->
                             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(device.verificationUri))) } catch (_: Exception) { }
@@ -353,6 +447,7 @@ class MainActivity : Activity() {
                             if (isFinishing || isDestroyed) return@runOnUiThread
                             githubTokensBySlot[slot] = token
                             githubReposBySlot[slot] = repos
+                            githubLoginsBySlot[slot] = identity.login
                             if (selectedAccount == slot) {
                                 githubStatusLabel?.text = "GitHub connection: " + identity.login + " • read-only"
                                 updateRepositorySpinner()
@@ -401,15 +496,20 @@ class MainActivity : Activity() {
                 val client = GitHubDeviceFlowClient(clientId)
                 val identity = client.identity(token)
                 val repos = client.repositories(token)
-                val first = repos.firstOrNull()
-                val runs = if (first == null) emptyList() else client.workflowRuns(token, first.owner, first.name)
-                val runners = if (first == null) emptyList() else client.runners(token, first.owner, first.name)
+                val selectedPath = selectedRepositoryBySlot[slot]
+                val selectedRepo = repos.firstOrNull { it.owner + "/" + it.name == selectedPath }
+                val runs = if (selectedRepo == null) emptyList() else client.workflowRuns(token, selectedRepo.owner, selectedRepo.name)
+                val runners = if (selectedRepo == null) emptyList() else client.runners(token, selectedRepo.owner, selectedRepo.name)
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     githubReposBySlot[slot] = repos
+                    githubLoginsBySlot[slot] = identity.login
                     if (selectedAccount == slot) {
                         updateRepositorySpinner()
-                        githubStatusLabel?.text = "GitHub: " + identity.login + " • " + repos.size + " repos • " + runs.size + " runs / " + runners.size + " runners (first repo)"
+                        githubStatusLabel?.text = if (selectedRepo == null)
+                            "GitHub: " + identity.login + " • " + repos.size + " repos • select a repository to load its metadata"
+                        else
+                            "GitHub: " + identity.login + " • " + selectedRepo.owner + "/" + selectedRepo.name + " • " + runs.size + " runs / " + runners.size + " runners"
                     }
                     recordActivity("github_readonly_metadata_refreshed", "SUCCESS", slot)
                     logAudit("github_readonly_metadata_refreshed")
@@ -537,13 +637,13 @@ class MainActivity : Activity() {
             setSingleLine(true)
         }
         AlertDialog.Builder(this)
-            .setTitle("Account slot " + index + " label")
+            .setTitle("Account " + index + " label")
             .setMessage("Save a local display label only. This does not connect or authorize a GitHub account.")
             .setView(input)
             .setNegativeButton("Cancel", null)
             .setNeutralButton("Reset") { _, _ ->
                 preferences.edit().remove(aliasKey(index)).apply()
-                recordActivity("account_slot_" + index + "_label_reset")
+                recordActivity("github_account_" + index + "_label_reset")
                 logAudit("account_slot_" + index + "_label_reset")
                 renderDashboard()
             }
@@ -551,11 +651,11 @@ class MainActivity : Activity() {
                 val value = input.text.toString().trim().take(48)
                 if (value.isEmpty()) {
                     preferences.edit().remove(aliasKey(index)).apply()
-                    recordActivity("account_slot_" + index + "_label_cleared")
+                    recordActivity("github_account_" + index + "_label_cleared")
                     logAudit("account_slot_" + index + "_label_cleared")
                 } else {
                     preferences.edit().putString(aliasKey(index), value).apply()
-                    recordActivity("account_slot_" + index + "_label_saved")
+                    recordActivity("github_account_" + index + "_label_saved")
                     logAudit("account_slot_" + index + "_label_saved")
                 }
                 renderDashboard()
@@ -602,7 +702,7 @@ class MainActivity : Activity() {
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val safeAction = action.replace("|", "/").take(80)
         val safeResult = result.replace("|", "/").take(60)
-        val entry = listOf(stamp, safeAction, safeResult, "Slot " + accountSlot.coerceIn(1, 4)).joinToString("|")
+        val entry = listOf(stamp, safeAction, safeResult, "Account " + accountSlot).joinToString("|")
         val old = historyPreferences.getString("entries", "") ?: ""
         val next = (listOf(entry) + old.lines().filter { it.isNotBlank() }).take(200)
         historyPreferences.edit().putString("entries", next.joinToString("\n")).apply()
@@ -768,7 +868,7 @@ class MainActivity : Activity() {
     private fun formatBytes(bytes: Long): String =
         String.format(Locale.US, "%.2f GiB", bytes.toDouble() / (1024.0 * 1024.0 * 1024.0))
     private fun aliasKey(index: Int) = "account_slot_" + index
-    private fun defaultAlias(index: Int) = "Account slot " + index
+    private fun defaultAlias(index: Int) = "Account " + index
     private fun marginParams(bottom: Int): ViewGroup.MarginLayoutParams =
         ViewGroup.MarginLayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
             .apply { bottomMargin = dp(bottom) }
