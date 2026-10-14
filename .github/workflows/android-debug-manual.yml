@@ -1,0 +1,116 @@
+name: Android Debug Build (Manual)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/android-sdk-setup-retry-2026-10-14
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-manager-android-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and test debug APK
+    runs-on: self-hosted
+    timeout-minutes: 45
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Download the command-line tools directly with curl retries because the
+      # setup-android action timed out while fetching the same Google archive.
+      - name: Download Android command-line tools with network retries
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ANDROID_HOME="$RUNNER_TEMP/android-sdk"
+          export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
+          archive="$RUNNER_TEMP/commandlinetools-linux.zip"
+          staging="$RUNNER_TEMP/android-cmdline-tools"
+          mkdir -p "$ANDROID_HOME/cmdline-tools" "$staging"
+          curl --fail --location --show-error \
+            --connect-timeout 30 --max-time 900 \
+            --retry 8 --retry-all-errors --retry-delay 10 \
+            "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip" \
+            --output "$archive"
+          (cd "$staging" && "$JAVA_HOME/bin/jar" xf "$archive")
+          sdkmanager_path="$(find "$staging" -type f -path '*/bin/sdkmanager' -print -quit)"
+          if [ -z "$sdkmanager_path" ]; then
+            echo "Could not find sdkmanager after extracting the downloaded archive."
+            echo "Extracted files (first 80):"
+            find "$staging" -maxdepth 5 -type f | head -80
+            exit 1
+          fi
+          cmdline_tools_dir="$(dirname "$(dirname "$sdkmanager_path")")"
+          rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+          mv "$cmdline_tools_dir" "$ANDROID_HOME/cmdline-tools/latest"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          chmod +x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
+
+      - name: Accept licenses and install Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Keep sdkmanager failure visible without failing on yes being closed after acceptance.
+          set +o pipefail
+          yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses
+          set -o pipefail
+          for attempt in 1 2 3; do
+            if sdkmanager --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "SDK component install attempt $attempt failed; retrying in 15 seconds."
+              sleep 15
+            fi
+          done
+          echo "Android SDK component installation failed after three attempts."
+          exit 1
+
+      # Extract Gradle with the Java-provided jar tool so this step does not
+      # depend on the runner having the system unzip command installed.
+      - name: Download and extract Gradle 8.9 without unzip
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gradle-8.9-bin.zip"
+          staging="$RUNNER_TEMP/gradle-extract"
+          install_dir="$RUNNER_TEMP/gradle-8.9"
+          mkdir -p "$staging"
+          curl --fail --location --show-error \
+            --connect-timeout 30 --max-time 900 \
+            --retry 8 --retry-all-errors --retry-delay 10 \
+            "https://services.gradle.org/distributions/gradle-8.9-bin.zip" \
+            --output "$archive"
+          (cd "$staging" && "$JAVA_HOME/bin/jar" xf "$archive")
+          test -x "$staging/gradle-8.9/bin/gradle"
+          rm -rf "$install_dir"
+          mv "$staging/gradle-8.9" "$install_dir"
+          echo "$install_dir/bin" >> "$GITHUB_PATH"
+          "$install_dir/bin/gradle" --version
+
+      - name: Build debug APK and run available unit tests
+        run: gradle --no-daemon assembleDebug testDebugUnitTest
+
+      - name: Upload debug APK (7-day retention)
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm-runner-manager-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 7
