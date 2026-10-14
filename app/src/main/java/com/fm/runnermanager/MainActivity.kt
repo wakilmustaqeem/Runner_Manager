@@ -257,14 +257,18 @@ class MainActivity : Activity() {
         return (((totalDelta - idleDelta).coerceAtLeast(0L) * 100) / totalDelta).toInt().coerceIn(0, 100)
     }
 
-    private fun readCpuCounters(): Pair<Long, Long>? = try {
-        val values = java.io.File("/proc/stat").readText().lineSequence().first().trim().split(Regex("\\s+"))
-        if (values.firstOrNull() != "cpu" || values.size < 5) return null
-        val counters = values.drop(1).mapNotNull { it.toLongOrNull() }
-        if (counters.size < 4) return null
-        Pair(counters.sum(), counters[3] + (counters.getOrNull(4) ?: 0L))
-    } catch (_: Exception) {
-        null
+    private fun readCpuCounters(): Pair<Long, Long>? {
+        return try {
+            val values = java.io.File("/proc/stat").readText().lineSequence().first().trim().split(Regex("\\s+"))
+            if (values.firstOrNull() != "cpu" || values.size < 5) null
+            else {
+                val counters = values.drop(1).mapNotNull { it.toLongOrNull() }
+                if (counters.size < 4) null
+                else Pair(counters.sum(), counters[3] + (counters.getOrNull(4) ?: 0L))
+            }
+        } catch (_: Exception) {
+            null
+        }
     }
 
     private fun addMetric(parent: LinearLayout, label: TextView, bar: ProgressBar) {
