@@ -397,12 +397,19 @@ class MainActivity : Activity() {
 
     private fun showAuditLog() {
         val entries = auditPreferences.getString("entries", "") ?: ""
-        AlertDialog.Builder(this).setTitle("Local audit log")
-            .setMessage(if (entries.isBlank()) "No local actions recorded yet." else entries)
+        AlertDialog.Builder(this).setTitle("Local Security Audit Log")
+            .setMessage(if (entries.isBlank()) "No local security/admin events recorded yet." else entries)
             .setPositiveButton("Close", null)
-            .setNeutralButton("Clear log") { _, _ ->
-                auditPreferences.edit().remove("entries").apply()
-                Toast.makeText(this, "Local metadata log cleared.", Toast.LENGTH_SHORT).show()
+            .setNeutralButton("Clear log…") { _, _ ->
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Clear Security Audit Log?")
+                    .setMessage("This removes local security/admin event history. Activity History remains separate. This action cannot be undone.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Clear Audit Log") { _, _ ->
+                        auditPreferences.edit().remove("entries").apply()
+                        logAuditWithoutHistory("audit_log_cleared_after_confirmation")
+                        Toast.makeText(this@MainActivity, "Audit Log cleared after confirmation.", Toast.LENGTH_SHORT).show()
+                    }.show()
             }.show()
     }
 
