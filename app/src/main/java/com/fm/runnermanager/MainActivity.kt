@@ -91,7 +91,7 @@ class MainActivity : Activity() {
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(18), dp(18), dp(18), dp(18))
-            setBackgroundColor(panel)
+            background = roundedPanel(panel, 22)
         }
         hero.addView(text("FM RUNNER MANAGER", 25f, ink, true))
         hero.addView(text("LOCAL-FIRST • SAFE CONTROL", 12f, accent, true).apply { setPadding(0, dp(6), 0, dp(8)) })
@@ -112,7 +112,7 @@ class MainActivity : Activity() {
         val metrics = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(13), dp(12), dp(13), dp(12))
-            setBackgroundColor(panel)
+            background = roundedPanel(panel, 18)
         }
         cpuLabel = text("CPU usage: reading…", 14f, ink, true)
         ramLabel = text("RAM: reading…", 14f, ink, true)
@@ -165,7 +165,7 @@ class MainActivity : Activity() {
         val runnerPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(13), dp(12), dp(13), dp(12))
-            setBackgroundColor(panel)
+            background = roundedPanel(panel, 18)
         }
         runnerPanel.addView(text("GitHub connection: Not configured", 14f, ink, true))
         runnerPanel.addView(text("Runner status: Not connected", 13f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
@@ -225,7 +225,35 @@ class MainActivity : Activity() {
         })
         root.addView(text("Safety: no credentials stored • no network calls • no packages installed • runner controls disabled",
             12f, muted, false).apply { setPadding(0, dp(10), 0, 0) })
+        styleTree(root)
     }
+
+    private fun styleTree(view: View) {
+        when (view) {
+            is Button -> {
+                view.backgroundTintList = android.content.res.ColorStateList.valueOf(accent)
+                view.setTextColor(0xFF071426.toInt())
+                view.textSize = 13f
+                view.isAllCaps = false
+            }
+            is EditText -> {
+                view.setTextColor(ink)
+                view.setHintTextColor(muted)
+                view.backgroundTintList = android.content.res.ColorStateList.valueOf(accent)
+            }
+            is Spinner -> view.backgroundTintList = android.content.res.ColorStateList.valueOf(accent)
+        }
+        if (view is ViewGroup) {
+            for (index in 0 until view.childCount) styleTree(view.getChildAt(index))
+        }
+    }
+
+    private fun roundedPanel(color: Int, radiusDp: Int): android.graphics.drawable.GradientDrawable =
+        android.graphics.drawable.GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dp(radiusDp).toFloat()
+            setStroke(dp(1), border)
+        }
 
     private fun updateRepositorySpinner() {
         val spinner = repoSpinner ?: return
