@@ -1,0 +1,47 @@
+name: Runner Environment Diagnostics (Manual Only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    name: Read-only runner tool check
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - name: Check unzip, PATH, Java, and jar without installing anything
+        shell: bash
+        run: |
+          set +e
+          echo "=== Runner environment diagnostics (read-only) ==="
+          echo
+          echo "--- unzip ---"
+          if command -v unzip >/dev/null 2>&1; then
+            command -v unzip
+            unzip -v 2>&1 | head -n 2
+          else
+            echo "unzip: NOT FOUND on PATH"
+          fi
+          echo
+          echo "--- PATH ---"
+          printf '%s\n' "$PATH"
+          echo
+          echo "--- java ---"
+          if command -v java >/dev/null 2>&1; then
+            command -v java
+            java -version 2>&1 | head -n 3
+          else
+            echo "java: NOT FOUND on PATH"
+          fi
+          echo
+          echo "--- jar ---"
+          if command -v jar >/dev/null 2>&1; then
+            command -v jar
+          else
+            echo "jar: NOT FOUND on PATH"
+          fi
+          echo
+          echo "Diagnostic complete. No packages installed and no files intentionally changed."
