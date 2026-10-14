@@ -66,7 +66,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # Keep sdkmanager failure visible without failing on yes being closed after acceptance.
+          set +o pipefail
           yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses
+          set -o pipefail
           for attempt in 1 2 3; do
             if sdkmanager --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0"; then
               exit 0
