@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - feat/fm-runner-manager-foundation-2026-10-13
+      - feat/android-sdk-setup-retry-2026-10-14
 
 permissions:
   contents: read
@@ -17,7 +17,7 @@ jobs:
   build:
     name: Build and test debug APK
     runs-on: self-hosted
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - name: Checkout feature branch
         uses: actions/checkout@v4
@@ -28,8 +28,30 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK
+      # Google SDK downloads previously timed out once. Retry setup up to three
+      # times; do not change runner registration or install OS-level packages.
+      - name: Set up Android SDK (attempt 1)
+        id: android_sdk_1
         uses: android-actions/setup-android@v3
+        continue-on-error: true
+
+      - name: Retry Android SDK setup (attempt 2)
+        id: android_sdk_2
+        if: steps.android_sdk_1.outcome == 'failure'
+        uses: android-actions/setup-android@v3
+        continue-on-error: true
+
+      - name: Retry Android SDK setup (attempt 3)
+        id: android_sdk_3
+        if: steps.android_sdk_2.outcome == 'failure'
+        uses: android-actions/setup-android@v3
+        continue-on-error: true
+
+      - name: Stop if Android SDK setup failed after retries
+        if: steps.android_sdk_1.outcome == 'failure' && steps.android_sdk_2.outcome == 'failure' && steps.android_sdk_3.outcome == 'failure'
+        run: |
+          echo "Android SDK setup failed on all three attempts."
+          exit 1
 
       - name: Install required Android SDK components
         run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
