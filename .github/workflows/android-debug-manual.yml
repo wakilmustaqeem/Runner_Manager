@@ -109,6 +109,8 @@ jobs:
           echo "Extracting Gradle ZIP with Java jar:"
           (cd "$staging" && "$jar" xf "$archive")
           echo "Gradle archive extraction completed."
+          # The jar tool may not preserve Unix executable bits from ZIP metadata.
+          chmod +x "$staging/gradle-8.9/bin/gradle"
           if [ ! -x "$staging/gradle-8.9/bin/gradle" ]; then
             echo "Expected Gradle launcher was not extracted."
             find "$staging" -maxdepth 4 -type f | head -80
