@@ -28,6 +28,10 @@ Provide one mobile dashboard for up to four separately authorized GitHub identit
 
 The four slots are local display labels, not pre-authorized identities. Each account must be connected by the owner and verified independently. No account is inferred from another account's login session.
 
+## Adapter design
+
+See [GITHUB-RUNNER-ADAPTER-DESIGN.md](docs/GITHUB-RUNNER-ADAPTER-DESIGN.md) for the proposed read-only GitHub adapter, per-account credential isolation, separate local DroidRunner control interface, policy enforcement gates, and acceptance criteria. This is design documentation only; no live GitHub connection or runner controls are enabled.
+
 ## Planned modules
 
 1. Runner dashboard: Online / Offline / Busy / Error, last check, latest job result.
@@ -41,7 +45,7 @@ The four slots are local display labels, not pre-authorized identities. Each acc
 
 ## Verification status
 
-This is a **foundation scaffold, not a production runner manager and not a verified APK**. Android build/runtime testing has not yet been confirmed. GitHub OAuth, Android Keystore-backed credential storage, live runner monitoring, package installation, and APK signing remain unimplemented. Do not paste secrets into Issues, commits, or chat.
+This remains a **foundation scaffold, not a production runner manager**. A debug APK build was verified by GitHub Actions on feature branch `feat/live-runner-dashboard-v1-2026-10-14` (run `38541401792`, commit `340568223e4cc771f92e80393b2387292cf62ebd`). Device installation/runtime testing is still pending. GitHub OAuth, Android Keystore-backed credential storage, live runner monitoring, package installation, and APK signing remain unimplemented. Do not paste secrets into Issues, commits, or chat.
 
 ## Development approach
 
