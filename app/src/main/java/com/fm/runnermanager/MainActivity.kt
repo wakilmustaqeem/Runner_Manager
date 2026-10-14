@@ -36,7 +36,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Local-first dashboard. Live GitHub/job data and runner controls require a future authorized adapter. */
+/** Local-first dashboard with explicit GitHub Device Flow authorization and read-only metadata. Runner controls remain disabled. */
 class MainActivity : Activity() {
     private val ink = 0xFFEAF2FF.toInt()
     private val muted = 0xFF9FB2CC.toInt()
@@ -188,14 +188,14 @@ class MainActivity : Activity() {
             text = "Refresh repositories / runner metadata"
             setOnClickListener { refreshGitHubMetadata() }
         }, marginParams(bottom = 6))
-        runnerPanel.addView(text("Job listing: Unavailable until an authorized GitHub/job adapter is implemented.", 13f, muted, false)
+        runnerPanel.addView(text("Workflow runs and runner details load only after GitHub authorization and sufficient read permissions.", 13f, muted, false)
             .apply { setPadding(0, dp(5), 0, dp(8)) })
         runnerPanel.addView(Button(this).apply {
             text = "View runner / job integration status"
             setOnClickListener {
                 AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Runner integration not implemented")
-                    .setMessage("This build does not connect to GitHub or control DroidRunner. No runner is started or stopped by this screen. Add and authorize a dedicated adapter before enabling live job data or controls.")
+                    .setTitle("Runner controls disabled")
+                    .setMessage("GitHub read-only metadata can be loaded after authorization. This screen does not start, stop, register, or dispatch runners. Those controls remain disabled.")
                     .setPositiveButton("Close", null).show()
                 recordActivity("runner_integration_unavailable_viewed")
                 logAudit("runner_integration_unavailable_viewed")
@@ -244,7 +244,7 @@ class MainActivity : Activity() {
             text = "Refresh device metrics"
             setOnClickListener { refreshMetrics(); Toast.makeText(this@MainActivity, "Device metrics refreshed.", Toast.LENGTH_SHORT).show() }
         })
-        root.addView(text("Safety: no credentials stored • no network calls • no packages installed • runner controls disabled",
+        root.addView(text("Safety: access token memory-only • no credentials logged • no packages installed • runner controls disabled",
             12f, muted, false).apply { setPadding(0, dp(10), 0, 0) })
         styleTree(root)
     }
