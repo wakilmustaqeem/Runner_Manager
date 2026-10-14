@@ -411,7 +411,13 @@ class MainActivity : Activity() {
         val old = auditPreferences.getString("entries", "") ?: ""
         val next = (listOf(stamp + " | " + action) + old.lines().filter { it.isNotBlank() }).take(100)
         auditPreferences.edit().putString("entries", next.joinToString("\n")).apply()
-        logHistory(action, "Recorded", selectedAccount)
+        val result = when {
+            action.contains("unavailable", ignoreCase = true) -> "Unavailable"
+            action.contains("failed", ignoreCase = true) || action.contains("error", ignoreCase = true) -> "Failed"
+            listOf("copied", "saved", "reset", "enabled", "disabled", "changed", "cleared").any { action.contains(it, ignoreCase = true) } -> "Success"
+            else -> "Recorded"
+        }
+        logHistory(action, result, selectedAccount)
     }
 
     private fun logHistory(action: String, result: String, accountSlot: Int) {
