@@ -72,7 +72,7 @@ jobs:
           yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses
           set -o pipefail
           for attempt in 1 2 3; do
-            if sdkmanager --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0"; then
+            if sdkmanager --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.1"; then
               exit 0
             fi
             if [ "$attempt" -lt 3 ]; then
@@ -122,27 +122,44 @@ jobs:
           echo "$install_dir/bin" >> "$GITHUB_PATH"
           "$install_dir/bin/gradle" --version
 
-      # Android's Maven AAPT2 binary may not start on the ARM64 PRoot host.
-      # Probe the SDK-provided tool first, then explicitly use it for resource linking.
-      - name: Verify ARM64-compatible SDK AAPT2
+      # Google's Linux build-tools binaries target x86_64. Replace native tools
+      # with pinned ARM64 builds and verify every downloaded file before use.
+      - name: Install verified ARM64 Android build tools
         shell: bash
         run: |
           set -euo pipefail
-          sdk_aapt2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          sdk_tools="$ANDROID_HOME/build-tools/35.0.1"
+          staging="$RUNNER_TEMP/android-arm64-build-tools"
+          base="https://github.com/Commit451/android-arm-build-tools/releases/download/platform-tools-35.0.1"
           echo "Runner architecture: $(uname -m)"
-          if [ ! -x "$sdk_aapt2" ]; then
-            echo "SDK AAPT2 is missing or not executable: $sdk_aapt2"
-            find "$ANDROID_HOME/build-tools" -maxdepth 3 -type f -name aapt2 -print
-            exit 1
-          fi
-          ls -l "$sdk_aapt2"
-          "$sdk_aapt2" version
+          [ "$(uname -m)" = "aarch64" ] || { echo "Expected an ARM64 runner."; exit 1; }
+          [ -d "$sdk_tools" ] || { echo "Android build-tools 35.0.1 is missing."; exit 1; }
+          rm -rf "$staging"
+          mkdir -p "$staging"
+          cat > "$staging/SHA256SUMS" <<'EOF'
+          c57d02d2986d7d68147d74525ad8a5fbb105f12723b33f1ce9eab12acd238cf0  aapt2
+          9ae2dfac8ff49f34d493c2fd3d96f6153563f2ec0f07d18f6f661d0e8403d6a2  aidl
+          172ecf6c4e93cc6f80a544f48b9a8fe770dd67f83b2f277504291cb4d1b82e3e  split-select
+          d0688e26a0960b010c9702c4a4f6e53308d239a618b1dd0e5d0f4c5ad1c84fe6  zipalign
+          EOF
+          for tool in aapt2 aidl split-select zipalign; do
+            curl --fail --location --show-error --connect-timeout 30 --max-time 300 \
+              --retry 5 --retry-all-errors --retry-delay 5 \
+              "$base/$tool" --output "$staging/$tool"
+          done
+          (cd "$staging" && sha256sum --check SHA256SUMS)
+          for tool in aapt2 aidl split-select zipalign; do
+            chmod +x "$staging/$tool"
+            install -m 0755 "$staging/$tool" "$sdk_tools/$tool"
+          done
+          echo "ARM64 AAPT2 smoke test:"
+          "$sdk_tools/aapt2" version
 
       - name: Build debug APK and run available unit tests
         shell: bash
         run: |
           set -euo pipefail
-          sdk_aapt2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          sdk_aapt2="$ANDROID_HOME/build-tools/35.0.1/aapt2"
           gradle --no-daemon "-Pandroid.aapt2FromMavenOverride=$sdk_aapt2" assembleDebug testDebugUnitTest
 
       - name: Upload debug APK (7-day retention)
