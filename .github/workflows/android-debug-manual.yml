@@ -46,7 +46,7 @@ jobs:
             --retry 8 --retry-all-errors --retry-delay 10 \
             "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip" \
             --output "$archive"
-          unzip -q "$archive" -d "$staging"
+          (cd "$staging" && jar xf "$archive")
           test -x "$staging/cmdline-tools/bin/sdkmanager"
           rm -rf "$ANDROID_HOME/cmdline-tools/latest"
           mv "$staging/cmdline-tools" "$ANDROID_HOME/cmdline-tools/latest"
