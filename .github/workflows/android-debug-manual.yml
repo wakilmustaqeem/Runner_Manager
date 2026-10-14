@@ -92,10 +92,10 @@ jobs:
           staging="$RUNNER_TEMP/gradle-extract"
           install_dir="$RUNNER_TEMP/gradle-8.9"
           mkdir -p "$staging"
-          curl --fail --location --show-error \\
-            --connect-timeout 30 --max-time 900 \\
-            --retry 8 --retry-all-errors --retry-delay 10 \\
-            "https://services.gradle.org/distributions/gradle-8.9-bin.zip" \\
+          curl --fail --location --show-error \
+            --connect-timeout 30 --max-time 900 \
+            --retry 8 --retry-all-errors --retry-delay 10 \
+            "https://services.gradle.org/distributions/gradle-8.9-bin.zip" \
             --output "$archive"
           (cd "$staging" && "$JAVA_HOME/bin/jar" xf "$archive")
           test -x "$staging/gradle-8.9/bin/gradle"
