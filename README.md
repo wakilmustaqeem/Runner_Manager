@@ -1,5 +1,9 @@
 # FM Runner Manager
 
+![FM Runner Manager project thumbnail](docs/fm-runner-manager-thumbnail.svg)
+
+> Project-preview artwork only; it does not indicate that live runner connectivity or all planned features are implemented.
+
 **Private, local-first Android app** for the eventual monitoring and management of self-hosted GitHub Actions runners on an Android device.
 
 ## Current foundation
