@@ -7,6 +7,7 @@ on:
       - feat/android-sdk-setup-retry-2026-10-14
       - feat/gradle-jar-extraction-fix-2026-10-14
       - feat/live-runner-dashboard-v1-2026-10-14
+      - feat/ui-history-complete-v1-2026-10-14
 
 permissions:
   contents: read
