@@ -122,8 +122,28 @@ jobs:
           echo "$install_dir/bin" >> "$GITHUB_PATH"
           "$install_dir/bin/gradle" --version
 
+      # Android's Maven AAPT2 binary may not start on the ARM64 PRoot host.
+      # Probe the SDK-provided tool first, then explicitly use it for resource linking.
+      - name: Verify ARM64-compatible SDK AAPT2
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_aapt2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          echo "Runner architecture: $(uname -m)"
+          if [ ! -x "$sdk_aapt2" ]; then
+            echo "SDK AAPT2 is missing or not executable: $sdk_aapt2"
+            find "$ANDROID_HOME/build-tools" -maxdepth 3 -type f -name aapt2 -print
+            exit 1
+          fi
+          ls -l "$sdk_aapt2"
+          "$sdk_aapt2" version
+
       - name: Build debug APK and run available unit tests
-        run: gradle --no-daemon assembleDebug testDebugUnitTest
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk_aapt2="$ANDROID_HOME/build-tools/35.0.0/aapt2"
+          gradle --no-daemon "-Pandroid.aapt2FromMavenOverride=$sdk_aapt2" assembleDebug testDebugUnitTest
 
       - name: Upload debug APK (7-day retention)
         uses: actions/upload-artifact@v4
