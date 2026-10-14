@@ -178,11 +178,13 @@ class MainActivity : Activity() {
         section(root, "Power & job policy")
         root.addView(text("Saved locally only. These settings do not yet change DroidRunner admission or interrupt jobs.", 13f, muted, false)
             .apply { setPadding(0, 0, 0, dp(7)) })
+        root.addView(text("Battery optimization: Android may restrict background runner activity. Grant exemption manually in system settings if needed; this app does not change it automatically.", 12f, muted, false)
+            .apply { setPadding(0, 0, 0, dp(8)) })
         addPolicySwitch(root, "Run only on mains power", "mains_only")
         addPolicySwitch(root, "Ephemeral runner (re-register / wipe work dir per job)", "ephemeral")
         addPolicySwitch(root, "Start runner on device boot", "boot_start")
         addChoice(root, "Minimum battery", "min_battery", arrayOf("0%", "20%", "30%", "50%"), arrayOf(0, 20, 30, 50), 20)
-        addChoice(root, "Maximum thermal policy", "max_thermal", arrayOf("None", "Light", "Moderate", "Critical"), arrayOf(0, 1, 2, 3), 2)
+        addChoice(root, "Maximum thermal policy", "max_thermal", arrayOf("None", "Light", "Moderate"), arrayOf(0, 1, 2), 2)
         addChoice(root, "Minimum free storage", "min_free_mb", arrayOf("512 MB", "1 GB", "2 GB", "5 GB"), arrayOf(512, 1024, 2048, 5120), 5120)
 
         section(root, "Diagnostics & audit")
@@ -359,7 +361,7 @@ class MainActivity : Activity() {
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val old = auditPreferences.getString("entries", "") ?: ""
         val next = (listOf(stamp + " | " + action) + old.lines().filter { it.isNotBlank() }).take(50)
-        auditPreferences.edit().putString("entries", next.joinToString("\\n")).apply()
+        auditPreferences.edit().putString("entries", next.joinToString("\n")).apply()
     }
 
     private fun diagnosticsText(): String {
@@ -372,16 +374,16 @@ class MainActivity : Activity() {
         val percent = if (level >= 0 && scale > 0) level * 100 / scale else -1
         val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
         val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
-        return "Device: " + Build.MANUFACTURER + " " + Build.MODEL + "\\n" +
-            "Android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\\n" +
-            "Supported ABI: " + (Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown") + "\\n" +
-            "CPU usage: " + (readCpuPercent().let { if (it < 0) "Unavailable" else it.toString() + "%" }) + "\\n" +
-            "Internal storage free: " + formatBytes(dataStats.availableBytes) + " / " + formatBytes(dataStats.totalBytes) + "\\n" +
-            "System-reported available RAM: " + formatBytes(memory.availMem) + " / " + formatBytes(memory.totalMem) + "\\n" +
-            "Battery: " + (if (percent < 0) "Unavailable" else percent.toString() + "%") + " • " + (if (charging) "Charging" else "Not charging") + "\\n" +
-            "GitHub connection: Not configured\\n" +
-            "Runner registration: Not configured\\n" +
-            "Repository/job adapter: Not implemented\\n" +
+        return "Device: " + Build.MANUFACTURER + " " + Build.MODEL + "\n" +
+            "Android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\n" +
+            "Supported ABI: " + (Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown") + "\n" +
+            "CPU usage: " + (readCpuPercent().let { if (it < 0) "Unavailable" else it.toString() + "%" }) + "\n" +
+            "Internal storage free: " + formatBytes(dataStats.availableBytes) + " / " + formatBytes(dataStats.totalBytes) + "\n" +
+            "System-reported available RAM: " + formatBytes(memory.availMem) + " / " + formatBytes(memory.totalMem) + "\n" +
+            "Battery: " + (if (percent < 0) "Unavailable" else percent.toString() + "%") + " • " + (if (charging) "Charging" else "Not charging") + "\n" +
+            "GitHub connection: Not configured\n" +
+            "Runner registration: Not configured\n" +
+            "Repository/job adapter: Not implemented\n" +
             "FM Commerce PHP Lint result: " + (preferences.getString("php_lint_status", "UNVERIFIED") ?: "UNVERIFIED")
     }
 
