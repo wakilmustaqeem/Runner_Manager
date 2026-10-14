@@ -61,6 +61,7 @@ class MainActivity : Activity() {
     private var lastCpu = readCpuCounters()
     private var selectedAccount = 1
     private var repoSpinner: Spinner? = null
+    private var githubAccountSpinner: Spinner? = null
     private val githubExecutor = Executors.newSingleThreadExecutor()
     private val githubTokensBySlot = mutableMapOf<Int, String>()
     private val githubReposBySlot = mutableMapOf<Int, List<GitHubDeviceFlowClient.Repository>>()
@@ -161,6 +162,7 @@ class MainActivity : Activity() {
             }
         }
         accountSpinner.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
+        githubAccountSpinner = accountSpinner
         root.addView(accountSpinner, marginParams(bottom = 8))
         val accountActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         accountActions.addView(Button(this).apply {
@@ -449,6 +451,8 @@ class MainActivity : Activity() {
                             githubTokensBySlot[slot] = token
                             githubReposBySlot[slot] = repos
                             githubLoginsBySlot[slot] = identity.login
+                            githubAccountSpinner?.adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, accountLabels())
+                            githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
                             if (selectedAccount == slot) {
                                 githubStatusLabel?.text = "GitHub connection: " + identity.login + " • read-only"
                                 updateRepositorySpinner()
@@ -505,6 +509,8 @@ class MainActivity : Activity() {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     githubReposBySlot[slot] = repos
                     githubLoginsBySlot[slot] = identity.login
+                    githubAccountSpinner?.adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, accountLabels())
+                    githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
                     if (selectedAccount == slot) {
                         updateRepositorySpinner()
                         githubStatusLabel?.text = if (selectedRepo == null)
