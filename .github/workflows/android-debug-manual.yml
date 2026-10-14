@@ -82,8 +82,8 @@ jobs:
           echo "Android SDK component installation failed after three attempts."
           exit 1
 
-      # Validate and extract Gradle using Python's standard-library ZIP reader.
-      # This avoids the missing system unzip and prints the exact archive error if invalid.
+      # Validate and extract Gradle with the Java 17 jar tool.
+      # This avoids depending on python3 or a system unzip in the PRoot runtime.
       - name: Download, validate, and extract Gradle 8.9
         shell: bash
         run: |
@@ -91,6 +91,8 @@ jobs:
           archive="$RUNNER_TEMP/gradle-8.9-bin.zip"
           staging="$RUNNER_TEMP/gradle-extract"
           install_dir="$RUNNER_TEMP/gradle-8.9"
+          jar="$JAVA_HOME/bin/jar"
+          [ -x "$jar" ] || { echo "Java jar tool not found at $jar"; exit 1; }
           rm -rf "$staging"
           mkdir -p "$staging"
           curl --fail --location --show-error \
@@ -101,23 +103,12 @@ jobs:
           echo "Downloaded archive details:"
           ls -lh "$archive"
           sha256sum "$archive"
-          python3 - "$archive" "$staging" <<'PY'
-          import os
-          import sys
-          import zipfile
-
-          archive, staging = sys.argv[1], sys.argv[2]
-          print(f"Python ZIP validation: {zipfile.is_zipfile(archive)}")
-          if not zipfile.is_zipfile(archive):
-              raise SystemExit("Downloaded Gradle archive is not a valid ZIP file.")
-          with zipfile.ZipFile(archive) as zf:
-              bad_member = zf.testzip()
-              if bad_member:
-                  raise SystemExit(f"Corrupt ZIP member: {bad_member}")
-              print(f"ZIP members: {len(zf.infolist())}")
-              zf.extractall(staging)
-          print("Gradle archive extraction completed.")
-          PY
+          echo "Validating Gradle ZIP directory:"
+          "$jar" tf "$archive" > "$RUNNER_TEMP/gradle-archive-list.txt"
+          echo "ZIP entries: $(wc -l < "$RUNNER_TEMP/gradle-archive-list.txt")"
+          echo "Extracting Gradle ZIP with Java jar:"
+          (cd "$staging" && "$jar" xf "$archive")
+          echo "Gradle archive extraction completed."
           if [ ! -x "$staging/gradle-8.9/bin/gradle" ]; then
             echo "Expected Gradle launcher was not extracted."
             find "$staging" -maxdepth 4 -type f | head -80
