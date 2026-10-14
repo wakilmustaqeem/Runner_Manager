@@ -6,140 +6,318 @@ import android.app.AlertDialog
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.IntentFilter
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
 import android.os.StatFs
 import android.text.InputType
 import android.view.Gravity
+import android.view.View
 import android.view.ViewGroup
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
+import android.widget.Spinner
+import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/** Local-first dashboard. Live GitHub/job data and runner controls require a future authorized adapter. */
 class MainActivity : Activity() {
     private val ink = 0xFF172033.toInt()
     private val muted = 0xFF586579.toInt()
     private val panel = 0xFFF3F6FA.toInt()
+    private val accent = 0xFF2457A7.toInt()
     private val preferences by lazy { getSharedPreferences("local_account_aliases", MODE_PRIVATE) }
     private val auditPreferences by lazy { getSharedPreferences("local_audit_metadata", MODE_PRIVATE) }
+    private val policyPreferences by lazy { getSharedPreferences("local_runner_policy", MODE_PRIVATE) }
+    private val handler = Handler(Looper.getMainLooper())
+    private var cpuLabel: TextView? = null
+    private var ramLabel: TextView? = null
+    private var diskLabel: TextView? = null
+    private var batteryLabel: TextView? = null
+    private var powerLabel: TextView? = null
+    private var cpuBar: ProgressBar? = null
+    private var ramBar: ProgressBar? = null
+    private var diskBar: ProgressBar? = null
+    private var batteryBar: ProgressBar? = null
+    private var lastCpu = readCpuCounters()
+    private var selectedAccount = 1
+    private var repoSpinner: Spinner? = null
+
+    private val refreshTask = object : Runnable {
+        override fun run() {
+            refreshMetrics()
+            handler.postDelayed(this, 3000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         renderDashboard()
+        refreshMetrics()
+        handler.postDelayed(refreshTask, 3000L)
+    }
+
+    override fun onDestroy() {
+        handler.removeCallbacks(refreshTask)
+        super.onDestroy()
     }
 
     private fun renderDashboard() {
         val scroll = ScrollView(this)
-        val page = LinearLayout(this).apply {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(24), dp(20), dp(28))
+            setPadding(dp(18), dp(22), dp(18), dp(28))
             setBackgroundColor(0xFFFFFFFF.toInt())
         }
-        scroll.addView(page)
+        scroll.addView(root)
         setContentView(scroll)
 
-        page.addView(text("FM Runner Manager", 27f, ink, true))
-        page.addView(text("Local-first • Four isolated account slots", 14f, muted, false).apply {
-            setPadding(0, dp(5), 0, dp(18))
-        })
-        page.addView(text("Runner overview", 19f, ink, true))
-        page.addView(text(
-            "This foundation keeps four separate local labels. No GitHub account is connected and no runner is registered yet.",
-            14f, muted, false
-        ).apply { setPadding(0, dp(8), 0, dp(12)) })
+        root.addView(text("FM Runner Manager", 27f, ink, true))
+        root.addView(text("Local-first • Live device dashboard • Four isolated accounts", 13f, muted, false)
+            .apply { setPadding(0, dp(5), 0, dp(16)) })
 
-        (1..4).forEach { index ->
-            val alias = preferences.getString(aliasKey(index), defaultAlias(index)) ?: defaultAlias(index)
-            val card = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(15), dp(14), dp(15), dp(14))
-                setBackgroundColor(panel)
-            }
-            card.addView(text(alias, 17f, ink, true))
-            card.addView(text("Runner: Not configured", 14f, muted, false).apply {
-                setPadding(0, dp(5), 0, dp(10))
-            })
-            card.addView(Button(this).apply {
-                text = "Edit local label"
-                setOnClickListener { editAlias(index, alias) }
-            })
-            page.addView(card, marginParams(bottom = 10))
-        }
-
-        page.addView(text("Device diagnostics", 19f, ink, true).apply {
-            setPadding(0, dp(12), 0, dp(8))
-        })
-        page.addView(text(diagnosticsText(), 14f, muted, false).apply {
-            setPadding(dp(14), dp(14), dp(14), dp(14))
+        section(root, "Device health")
+        val metrics = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(13), dp(12), dp(13), dp(12))
             setBackgroundColor(panel)
+        }
+        cpuLabel = text("CPU usage: reading…", 14f, ink, true)
+        ramLabel = text("RAM: reading…", 14f, ink, true)
+        diskLabel = text("Disk: reading…", 14f, ink, true)
+        batteryLabel = text("Battery: reading…", 14f, ink, true)
+        powerLabel = text("Power: reading…", 13f, muted, false)
+        cpuBar = progressBar()
+        ramBar = progressBar()
+        diskBar = progressBar()
+        batteryBar = progressBar()
+        addMetric(metrics, cpuLabel!!, cpuBar!!)
+        addMetric(metrics, ramLabel!!, ramBar!!)
+        addMetric(metrics, diskLabel!!, diskBar!!)
+        addMetric(metrics, batteryLabel!!, batteryBar!!)
+        metrics.addView(powerLabel!!)
+        metrics.addView(text("Device readings refresh locally every 3 seconds.", 11f, muted, false)
+            .apply { setPadding(0, dp(8), 0, 0) })
+        root.addView(metrics, marginParams(bottom = 12))
+
+        section(root, "Account & repository")
+        root.addView(text("Choose a local slot. Real repository names require explicit authorization for that account.", 13f, muted, false)
+            .apply { setPadding(0, 0, 0, dp(7)) })
+        val accounts = (1..4).map { index ->
+            val alias = preferences.getString(aliasKey(index), defaultAlias(index)) ?: defaultAlias(index)
+            "Slot " + index + " • " + alias
+        }
+        val accountSpinner = Spinner(this).apply {
+            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, accounts)
+            onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+                override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                    selectedAccount = position + 1
+                    updateRepositorySpinner()
+                }
+            }
+        }
+        root.addView(accountSpinner, marginParams(bottom = 8))
+        repoSpinner = Spinner(this)
+        root.addView(repoSpinner, marginParams(bottom = 8))
+        updateRepositorySpinner()
+        root.addView(Button(this).apply {
+            text = "Edit selected account label"
+            setOnClickListener {
+                val alias = preferences.getString(aliasKey(selectedAccount), defaultAlias(selectedAccount)) ?: defaultAlias(selectedAccount)
+                editAlias(selectedAccount, alias)
+            }
         }, marginParams(bottom = 12))
 
-        page.addView(text("FM Commerce • PHP Lint status", 19f, ink, true).apply {
-            setPadding(0, dp(16), 0, dp(8))
-        })
-        page.addView(text(phpLintStatusText(), 14f, muted, false).apply {
-            setPadding(dp(14), dp(14), dp(14), dp(14))
+        section(root, "Runner & job activity")
+        val runnerPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(13), dp(12), dp(13), dp(12))
             setBackgroundColor(panel)
-        }, marginParams(bottom = 8))
-        page.addView(Button(this).apply {
-            text = "Record PHP Lint outcome"
-            setOnClickListener { choosePhpLintOutcome() }
-        })
-        page.addView(Button(this).apply {
-            text = "PHP runtime check (not implemented)"
+        }
+        runnerPanel.addView(text("GitHub connection: Not configured", 14f, ink, true))
+        runnerPanel.addView(text("Runner status: Not connected", 13f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+        runnerPanel.addView(text("Job listing: Unavailable until an authorized GitHub/job adapter is implemented.", 13f, muted, false)
+            .apply { setPadding(0, dp(5), 0, dp(8)) })
+        runnerPanel.addView(Button(this).apply {
+            text = "View runner / job integration status"
             setOnClickListener {
                 AlertDialog.Builder(this@MainActivity)
-                    .setTitle("PHP runtime check unavailable")
-                    .setMessage("Runner Manager has not executed PHP or installed a PHP package. This button is informational only; it does not run a lint job or contact GitHub.")
-                    .setPositiveButton("Close", null)
-                    .show()
-                logAudit("php_runtime_check_unavailable_viewed")
+                    .setTitle("Runner integration not implemented")
+                    .setMessage("This build does not connect to GitHub or control DroidRunner. No runner is started or stopped by this screen. Add and authorize a dedicated adapter before enabling live job data or controls.")
+                    .setPositiveButton("Close", null).show()
+                logAudit("runner_integration_unavailable_viewed")
             }
         })
+        val controlRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        controlRow.addView(Button(this).apply {
+            text = "Start runner"
+            isEnabled = false
+            contentDescription = "Disabled until an authorized runner control adapter exists"
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(5) })
+        controlRow.addView(Button(this).apply {
+            text = "Stop runner"
+            isEnabled = false
+            contentDescription = "Disabled until an authorized runner control adapter exists"
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(5) })
+        runnerPanel.addView(controlRow)
+        root.addView(runnerPanel, marginParams(bottom = 12))
 
-        page.addView(Button(this).apply {
-            text = "Copy diagnostics report"
+        section(root, "Power & job policy")
+        root.addView(text("Saved locally only. These settings do not yet change DroidRunner admission or interrupt jobs.", 13f, muted, false)
+            .apply { setPadding(0, 0, 0, dp(7)) })
+        addPolicySwitch(root, "Run only on mains power", "mains_only")
+        addPolicySwitch(root, "Ephemeral runner (re-register / wipe work dir per job)", "ephemeral")
+        addPolicySwitch(root, "Start runner on device boot", "boot_start")
+        addChoice(root, "Minimum battery", "min_battery", arrayOf("0%", "20%", "30%", "50%"), arrayOf(0, 20, 30, 50), 20)
+        addChoice(root, "Maximum thermal policy", "max_thermal", arrayOf("None", "Light", "Moderate", "Critical"), arrayOf(0, 1, 2, 3), 2)
+        addChoice(root, "Minimum free storage", "min_free_mb", arrayOf("512 MB", "1 GB", "2 GB", "5 GB"), arrayOf(512, 1024, 2048, 5120), 5120)
+
+        section(root, "Diagnostics & audit")
+        root.addView(Button(this).apply {
+            text = "Copy device diagnostics"
             setOnClickListener {
                 val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 clipboard.setPrimaryClip(ClipData.newPlainText("FM Runner Manager diagnostics", diagnosticsText()))
                 logAudit("diagnostics_copied")
-                Toast.makeText(this@MainActivity, "Diagnostics copied. No account tokens are included.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, "Local diagnostics copied; no tokens included.", Toast.LENGTH_SHORT).show()
             }
         })
-        page.addView(Button(this).apply {
-            text = "View local audit log"
-            setOnClickListener { showAuditLog() }
+        root.addView(Button(this).apply { text = "View local audit log"; setOnClickListener { showAuditLog() } })
+        root.addView(Button(this).apply {
+            text = "Refresh device metrics"
+            setOnClickListener { refreshMetrics(); Toast.makeText(this@MainActivity, "Device metrics refreshed.", Toast.LENGTH_SHORT).show() }
         })
-        page.addView(Button(this).apply {
-            text = "Refresh device diagnostics"
-            setOnClickListener { renderDashboard() }
+        root.addView(text("Safety: no credentials stored • no network calls • no packages installed • runner controls disabled",
+            12f, muted, false).apply { setPadding(0, dp(10), 0, 0) })
+    }
+
+    private fun updateRepositorySpinner() {
+        val spinner = repoSpinner ?: return
+        spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
+            listOf("Repositories not loaded — connect this account first"))
+        spinner.isEnabled = false
+    }
+
+    private fun refreshMetrics() {
+        val manager = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+        val memory = ActivityManager.MemoryInfo()
+        manager.getMemoryInfo(memory)
+        val usedRam = (memory.totalMem - memory.availMem).coerceAtLeast(0L)
+        val ramPercent = if (memory.totalMem > 0) (usedRam * 100 / memory.totalMem).toInt().coerceIn(0, 100) else 0
+        val stat = StatFs(Environment.getDataDirectory().absolutePath)
+        val free = stat.availableBytes
+        val total = stat.totalBytes.coerceAtLeast(1L)
+        val usedDiskPercent = (((total - free).coerceAtLeast(0L) * 100) / total).toInt().coerceIn(0, 100)
+        val cpuPercent = readCpuPercent()
+        val battery = registerReceiver(null, IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+        val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+        val percent = if (level >= 0 && scale > 0) (level * 100 / scale).coerceIn(0, 100) else -1
+        val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val plugged = battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        val tempTenths = battery?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+        cpuLabel?.text = "CPU usage: " + if (cpuPercent < 0) "Unavailable" else cpuPercent.toString() + "%"
+        ramLabel?.text = "RAM used: " + formatBytes(usedRam) + " / " + formatBytes(memory.totalMem) + " • " + ramPercent + "%"
+        diskLabel?.text = "Disk used: " + formatBytes(total - free) + " / " + formatBytes(total) + " • " + usedDiskPercent + "% (free " + formatBytes(free) + ")"
+        batteryLabel?.text = "Battery: " + if (percent < 0) "Unavailable" else percent.toString() + "%"
+        val powerText = when {
+            charging -> "Charging"
+            plugged != 0 -> "Connected to power"
+            else -> "Not charging"
+        }
+        powerLabel?.text = "Power: " + powerText + if (tempTenths >= 0) " • Battery temp " + String.format(Locale.US, "%.1f", tempTenths / 10.0) + "°C" else ""
+        cpuBar?.progress = cpuPercent.coerceAtLeast(0)
+        ramBar?.progress = ramPercent
+        diskBar?.progress = usedDiskPercent
+        batteryBar?.progress = percent.coerceAtLeast(0)
+    }
+
+    private fun readCpuPercent(): Int {
+        val current = readCpuCounters() ?: return -1
+        val previous = lastCpu
+        lastCpu = current
+        if (previous == null) return -1
+        val totalDelta = current.first - previous.first
+        val idleDelta = current.second - previous.second
+        if (totalDelta <= 0L) return -1
+        return (((totalDelta - idleDelta).coerceAtLeast(0L) * 100) / totalDelta).toInt().coerceIn(0, 100)
+    }
+
+    private fun readCpuCounters(): Pair<Long, Long>? = try {
+        val values = java.io.File("/proc/stat").readText().lineSequence().first().trim().split(Regex("\\s+"))
+        if (values.firstOrNull() != "cpu" || values.size < 5) return null
+        val counters = values.drop(1).mapNotNull { it.toLongOrNull() }
+        if (counters.size < 4) return null
+        Pair(counters.sum(), counters[3] + (counters.getOrNull(4) ?: 0L))
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun addMetric(parent: LinearLayout, label: TextView, bar: ProgressBar) {
+        parent.addView(label)
+        parent.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)).apply {
+            topMargin = dp(5); bottomMargin = dp(10)
         })
-        page.addView(text(
-            "Package readiness: not checked • Installation: not attempted",
-            13f, muted, false
-        ).apply { setPadding(0, dp(14), 0, 0) })
-        page.addView(text(
-            "Safety: labels only • no credentials stored • no network calls • no packages installed • no runner jobs started",
-            12f, muted, false
-        ).apply { setPadding(0, dp(8), 0, 0) })
+    }
+
+    private fun progressBar() = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+        max = 100
+        progress = 0
+        progressTintList = android.content.res.ColorStateList.valueOf(accent)
+        progressBackgroundTintList = android.content.res.ColorStateList.valueOf(0xFFDCE3ED.toInt())
+    }
+
+    private fun addPolicySwitch(parent: LinearLayout, label: String, key: String) {
+        parent.addView(Switch(this).apply {
+            text = label
+            isChecked = policyPreferences.getBoolean(key, false)
+            setOnCheckedChangeListener { _, checked ->
+                policyPreferences.edit().putBoolean(key, checked).apply()
+                logAudit("local_policy_" + key + "_" + if (checked) "enabled" else "disabled")
+            }
+        }, marginParams(bottom = 2))
+    }
+
+    private fun addChoice(parent: LinearLayout, title: String, key: String, labels: Array<String>, values: Array<Int>, defaultValue: Int) {
+        parent.addView(text(title, 14f, ink, true).apply { setPadding(0, dp(7), 0, dp(2)) })
+        val spinner = Spinner(this)
+        spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+        val saved = policyPreferences.getInt(key, defaultValue)
+        spinner.setSelection(values.indexOf(saved).takeIf { it >= 0 } ?: 0)
+        spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            private var initial = true
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+            override fun onItemSelected(parentView: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                if (initial) { initial = false; return }
+                policyPreferences.edit().putInt(key, values[position]).apply()
+                logAudit("local_policy_" + key + "_changed")
+            }
+        }
+        parent.addView(spinner, marginParams(bottom = 5))
     }
 
     private fun editAlias(index: Int, current: String) {
         val input = EditText(this).apply {
-            setText(current)
-            hint = defaultAlias(index)
+            setText(current); hint = defaultAlias(index)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
             setSingleLine(true)
         }
         AlertDialog.Builder(this)
-            .setTitle("Account slot $index label")
+            .setTitle("Account slot " + index + " label")
             .setMessage("Save a local display label only. This does not connect or authorize a GitHub account.")
             .setView(input)
             .setNegativeButton("Cancel", null)
@@ -159,106 +337,64 @@ class MainActivity : Activity() {
                 }
                 renderDashboard()
                 Toast.makeText(this, "Local label saved; account remains disconnected.", Toast.LENGTH_SHORT).show()
-            }
-            .show()
+            }.show()
     }
 
     private fun showAuditLog() {
         val entries = auditPreferences.getString("entries", "") ?: ""
-        AlertDialog.Builder(this)
-            .setTitle("Local audit log")
+        AlertDialog.Builder(this).setTitle("Local audit log")
             .setMessage(if (entries.isBlank()) "No local actions recorded yet." else entries)
             .setPositiveButton("Close", null)
             .setNeutralButton("Clear log") { _, _ ->
                 auditPreferences.edit().remove("entries").apply()
                 Toast.makeText(this, "Local metadata log cleared.", Toast.LENGTH_SHORT).show()
-            }
-            .show()
+            }.show()
     }
 
     private fun logAudit(action: String) {
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
         val old = auditPreferences.getString("entries", "") ?: ""
-        val next = (listOf("$stamp | $action") + old.lines().filter { it.isNotBlank() }).take(50)
-        auditPreferences.edit().putString("entries", next.joinToString("\n")).apply()
+        val next = (listOf(stamp + " | " + action) + old.lines().filter { it.isNotBlank() }).take(50)
+        auditPreferences.edit().putString("entries", next.joinToString("\\n")).apply()
     }
 
     private fun diagnosticsText(): String {
         val dataStats = StatFs(Environment.getDataDirectory().absolutePath)
-        val memoryInfo = ActivityManager.MemoryInfo()
-        (getSystemService(ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(memoryInfo)
-        return "Device: " + Build.MANUFACTURER + " " + Build.MODEL + "\n" +
-            "Android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\n" +
-            "Supported ABI: " + (Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown") + "\n" +
-            "Internal storage free: " + formatBytes(dataStats.availableBytes) + " / " + formatBytes(dataStats.totalBytes) + "\n" +
-            "System-reported available RAM: " + formatBytes(memoryInfo.availMem) + "\n" +
-            "External storage state: " + Environment.getExternalStorageState() + "\n" +
-            "GitHub connection: Not configured\n" +
-            "Runner registration: Not configured\n" +
-            "Package installation: Not attempted\n" +
+        val memory = ActivityManager.MemoryInfo()
+        (getSystemService(ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(memory)
+        val battery = registerReceiver(null, IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED))
+        val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
+        val percent = if (level >= 0 && scale > 0) level * 100 / scale else -1
+        val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
+        return "Device: " + Build.MANUFACTURER + " " + Build.MODEL + "\\n" +
+            "Android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\\n" +
+            "Supported ABI: " + (Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown") + "\\n" +
+            "CPU usage: " + (readCpuPercent().let { if (it < 0) "Unavailable" else it.toString() + "%" }) + "\\n" +
+            "Internal storage free: " + formatBytes(dataStats.availableBytes) + " / " + formatBytes(dataStats.totalBytes) + "\\n" +
+            "System-reported available RAM: " + formatBytes(memory.availMem) + " / " + formatBytes(memory.totalMem) + "\\n" +
+            "Battery: " + (if (percent < 0) "Unavailable" else percent.toString() + "%") + " • " + (if (charging) "Charging" else "Not charging") + "\\n" +
+            "GitHub connection: Not configured\\n" +
+            "Runner registration: Not configured\\n" +
+            "Repository/job adapter: Not implemented\\n" +
             "FM Commerce PHP Lint result: " + (preferences.getString("php_lint_status", "UNVERIFIED") ?: "UNVERIFIED")
     }
 
-    private fun phpLintStatusText(): String {
-        val status = preferences.getString("php_lint_status", "UNVERIFIED") ?: "UNVERIFIED"
-        val note = preferences.getString("php_lint_note", "") ?: ""
-        return "Target: fmmustaqeem/fm-commerce-platform\n" +
-            "Result: " + status + "\n" +
-            (if (note.isBlank()) "" else "Note: " + note + "\n") +
-            "This is a locally recorded classification only. No PHP lint was run by this app."
+    private fun section(parent: LinearLayout, title: String) {
+        parent.addView(text(title, 19f, ink, true).apply { setPadding(0, dp(12), 0, dp(8)) })
     }
-
-    private fun choosePhpLintOutcome() {
-        val statuses = arrayOf(
-            "UNVERIFIED — not tested",
-            "UNSUPPORTED — no safe PHP execution adapter",
-            "BLOCKED_BEFORE_START — job did not start"
-        )
-        val values = arrayOf("UNVERIFIED", "UNSUPPORTED", "BLOCKED_BEFORE_START")
-        AlertDialog.Builder(this)
-            .setTitle("Record FM Commerce PHP Lint outcome")
-            .setMessage("This app cannot execute PHP. PASS and LINT_FAILED are unavailable until a real, evidence-backed PHP execution adapter exists. Record only an unverified, unsupported, or blocked state here.")
-            .setItems(statuses) { _, which ->
-                val status = values[which]
-                val note = when (status) {
-                    "UNSUPPORTED" -> "No safe PHP execution adapter is implemented in Runner Manager."
-                    "BLOCKED_BEFORE_START" -> "Job did not start; no lint result was produced."
-                    else -> "No verified PHP lint result."
-                }
-                preferences.edit()
-                    .putString("php_lint_status", status)
-                    .putString("php_lint_note", note)
-                    .apply()
-                logAudit("fm_commerce_php_lint_status_recorded_" + status.lowercase(Locale.US))
-                renderDashboard()
-                Toast.makeText(this, "Status recorded locally; no lint job was run.", Toast.LENGTH_SHORT).show()
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun formatBytes(bytes: Long): String {
-        val gib = bytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
-        return String.format(Locale.US, "%.2f GiB", gib)
-    }
-
-    private fun aliasKey(index: Int) = "account_slot_$index"
-    private fun defaultAlias(index: Int) = "Account slot $index"
-
+    private fun formatBytes(bytes: Long): String =
+        String.format(Locale.US, "%.2f GiB", bytes.toDouble() / (1024.0 * 1024.0 * 1024.0))
+    private fun aliasKey(index: Int) = "account_slot_" + index
+    private fun defaultAlias(index: Int) = "Account slot " + index
+    private fun marginParams(bottom: Int): ViewGroup.MarginLayoutParams =
+        ViewGroup.MarginLayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+            .apply { bottomMargin = dp(bottom) }
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
     private fun text(value: String, sizeSp: Float, color: Int, bold: Boolean): TextView =
         TextView(this).apply {
-            text = value
-            textSize = sizeSp
-            setTextColor(color)
-            gravity = Gravity.START
+            text = value; textSize = sizeSp; setTextColor(color); gravity = Gravity.START
             if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
         }
-
-    private fun marginParams(bottom: Int): ViewGroup.MarginLayoutParams =
-        ViewGroup.MarginLayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT,
-            ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { bottomMargin = dp(bottom) }
-
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 }
