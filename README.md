@@ -36,6 +36,17 @@ The four slots are local display labels, not pre-authorized identities. Each acc
 
 See [GITHUB-RUNNER-ADAPTER-DESIGN.md](docs/GITHUB-RUNNER-ADAPTER-DESIGN.md) for the proposed read-only GitHub adapter, per-account credential isolation, separate local DroidRunner control interface, policy enforcement gates, and acceptance criteria. This is design documentation only; no live GitHub connection or runner controls are enabled.
 
+## Current UI upgrade — feature branch only
+
+The UI upgrade is being developed on `feat/ui-history-complete-v1-2026-10-14`; it has not been merged into `main` and is not yet device/build verified.
+
+- Dark navy dashboard with cyan accent, rounded panels, and quick access to History and Audit Log.
+- Local Activity History: timestamp, action, result, and account slot; search; explicit date filter; action/result filters; copy filtered results; CSV-style export/share; confirmation before clearing.
+- History is stored separately from the security Audit Log. Clearing History does not clear Audit Log.
+- Device diagnostics, four account-label slots, runner/job availability notice, disabled Start/Stop controls, power/job policy preferences, refresh, and copy diagnostics remain present.
+- History stores metadata only. It must not store passwords, tokens, or project/message contents.
+- UI-only policy preferences are labelled as local settings; they do not enforce runner behavior until a real policy gate is integrated at the runner runtime.
+
 ## Planned modules
 
 1. Runner dashboard: Online / Offline / Busy / Error, last check, latest job result.
