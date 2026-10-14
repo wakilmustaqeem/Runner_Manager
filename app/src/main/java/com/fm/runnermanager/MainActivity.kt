@@ -432,6 +432,14 @@ class MainActivity : Activity() {
         val search = EditText(this).apply {
             hint = "Search action, result, account slot…"
             setSingleLine(true)
+            setTextColor(0xFF172033.toInt())
+            setHintTextColor(0xFF66758A.toInt())
+        }
+        val dateFilter = EditText(this).apply {
+            hint = "Filter date (YYYY-MM-DD)"
+            setSingleLine(true)
+            setTextColor(0xFF172033.toInt())
+            setHintTextColor(0xFF66758A.toInt())
         }
         val actionFilter = Spinner(this).apply {
             adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
@@ -443,7 +451,7 @@ class MainActivity : Activity() {
         }
         val results = TextView(this).apply {
             textSize = 12f
-            setTextColor(ink)
+            setTextColor(0xFF172033.toInt())
             setPadding(0, dp(10), 0, dp(10))
         }
         val clearButton = Button(this).apply {
@@ -462,6 +470,7 @@ class MainActivity : Activity() {
         }
         fun render() {
             val query = search.text.toString().trim().lowercase(Locale.ROOT)
+            val dateQuery = dateFilter.text.toString().trim()
             val action = actionFilter.selectedItem?.toString() ?: "All actions"
             val outcome = resultFilter.selectedItem?.toString() ?: "All results"
             val entries = (historyPreferences.getString("entries", "") ?: "").lines()
@@ -471,6 +480,7 @@ class MainActivity : Activity() {
                     val actionText = fields.getOrElse(1) { "" }
                     val resultText = fields.getOrElse(2) { "" }
                     row.lowercase(Locale.ROOT).contains(query) &&
+                        (dateQuery.isEmpty() || fields.getOrElse(0) { "" }.startsWith(dateQuery)) &&
                         (action == "All actions" || actionText.contains(action, ignoreCase = true)) &&
                         (outcome == "All results" || resultText.equals(outcome, ignoreCase = true))
                 }
@@ -481,6 +491,11 @@ class MainActivity : Activity() {
                         "\nRESULT " + parts.getOrElse(2) { "Unknown" } + "\nSLOT   " + parts.getOrElse(3) { "Unknown" }
                 }
         }
+        dateFilter.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = render()
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
         search.addTextChangedListener(object : android.text.TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = render()
@@ -495,6 +510,7 @@ class MainActivity : Activity() {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) = render()
         }
         wrapper.addView(search)
+        wrapper.addView(dateFilter)
         wrapper.addView(actionFilter)
         wrapper.addView(resultFilter)
         val scroller = ScrollView(this).apply { addView(results) }
