@@ -7,6 +7,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
@@ -29,6 +30,8 @@ import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import com.fm.runnermanager.adapters.GitHubDeviceFlowClient
+import java.util.concurrent.Executors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -58,6 +61,11 @@ class MainActivity : Activity() {
     private var lastCpu = readCpuCounters()
     private var selectedAccount = 1
     private var repoSpinner: Spinner? = null
+    private val githubExecutor = Executors.newSingleThreadExecutor()
+    private val githubTokensBySlot = mutableMapOf<Int, String>()
+    private val githubReposBySlot = mutableMapOf<Int, List<GitHubDeviceFlowClient.Repository>>()
+    private val githubClientIds = mutableMapOf<Int, String>()
+    private var githubStatusLabel: TextView? = null
 
     private val refreshTask = object : Runnable {
         override fun run() {
@@ -75,6 +83,8 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         handler.removeCallbacks(refreshTask)
+        githubExecutor.shutdownNow()
+        githubTokensBySlot.clear()
         super.onDestroy()
     }
 
@@ -167,8 +177,17 @@ class MainActivity : Activity() {
             setPadding(dp(13), dp(12), dp(13), dp(12))
             background = roundedPanel(panel, 18)
         }
-        runnerPanel.addView(text("GitHub connection: Not configured", 14f, ink, true))
-        runnerPanel.addView(text("Runner status: Not connected", 13f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+        githubStatusLabel = text("GitHub connection: Not configured", 14f, ink, true)
+        runnerPanel.addView(githubStatusLabel!!)
+        runnerPanel.addView(text("Runner status: Read-only metadata only; Start/Stop disabled", 13f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+        runnerPanel.addView(Button(this).apply {
+            text = "Connect GitHub (read-only)"
+            setOnClickListener { beginGitHubConnection() }
+        }, marginParams(bottom = 6))
+        runnerPanel.addView(Button(this).apply {
+            text = "Refresh repositories / runner metadata"
+            setOnClickListener { refreshGitHubMetadata() }
+        }, marginParams(bottom = 6))
         runnerPanel.addView(text("Job listing: Unavailable until an authorized GitHub/job adapter is implemented.", 13f, muted, false)
             .apply { setPadding(0, dp(5), 0, dp(8)) })
         runnerPanel.addView(Button(this).apply {
@@ -259,9 +278,151 @@ class MainActivity : Activity() {
 
     private fun updateRepositorySpinner() {
         val spinner = repoSpinner ?: return
-        spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
-            listOf("Repositories not loaded — connect this account first"))
-        spinner.isEnabled = false
+        val repos = githubReposBySlot[selectedAccount].orEmpty()
+        val labels = if (repos.isEmpty()) listOf("Repositories not loaded — connect this account first")
+            else repos.map { it.owner + "/" + it.name + if (it.isPrivate) " • private" else " • public" }
+        spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+        spinner.isEnabled = repos.isNotEmpty()
+    }
+
+    private fun beginGitHubConnection() {
+        val slot = selectedAccount
+        val input = EditText(this).apply {
+            hint = "GitHub App Client ID (not a secret)"
+            inputType = InputType.TYPE_CLASS_TEXT
+            setText(githubClientIds[slot].orEmpty())
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Connect GitHub account slot " + slot)
+            .setMessage("Enter the Client ID of your registered GitHub App with Device Flow enabled. Do not enter a PAT, client secret, or runner token.")
+            .setView(input)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue") { _, _ ->
+                val clientId = input.text.toString().trim()
+                if (clientId.isBlank()) Toast.makeText(this, "Client ID is required.", Toast.LENGTH_LONG).show()
+                else { githubClientIds[slot] = clientId; startDeviceFlow(slot, clientId) }
+            }.show()
+    }
+
+    private fun startDeviceFlow(slot: Int, clientId: String) {
+        githubStatusLabel?.text = "GitHub connection: Requesting device authorization…"
+        githubExecutor.execute {
+            try {
+                val client = GitHubDeviceFlowClient(clientId)
+                val device = client.requestDeviceCode()
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    AlertDialog.Builder(this)
+                        .setTitle("Authorize GitHub slot " + slot)
+                        .setMessage("Open " + device.verificationUri + "\nEnter one-time code:\n" + device.userCode + "\n\nApprove only the intended GitHub account.")
+                        .setPositiveButton("Open page & wait") { _, _ ->
+                            try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(device.verificationUri))) } catch (_: Exception) { }
+                            pollDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot)
+                        }
+                        .setNeutralButton("I've opened it") { _, _ -> pollDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot) }
+                        .setNegativeButton("Cancel") { _, _ ->
+                            githubStatusLabel?.text = "GitHub connection: Authorization cancelled"
+                            recordActivity("github_device_authorization_cancelled", "CANCELLED", slot)
+                        }.show()
+                }
+            } catch (_: Exception) {
+                runOnUiThread {
+                    githubStatusLabel?.text = "GitHub connection: Authorization request failed"
+                    Toast.makeText(this, "Check Client ID, Device Flow settings, and network.", Toast.LENGTH_LONG).show()
+                    recordActivity("github_device_authorization_failed", "FAILED", slot)
+                    logAudit("github_device_authorization_failed")
+                }
+            }
+        }
+    }
+
+    private fun pollDeviceFlow(client: GitHubDeviceFlowClient, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int) {
+        githubStatusLabel?.text = "GitHub connection: Waiting for browser approval…"
+        githubExecutor.execute {
+            val deadline = System.currentTimeMillis() + expiresIn.coerceAtLeast(1L) * 1000L
+            var interval = initialInterval.coerceAtLeast(1L)
+            try {
+                while (!Thread.currentThread().isInterrupted && System.currentTimeMillis() < deadline) {
+                    Thread.sleep(interval * 1000L)
+                    val result = client.pollDeviceToken(deviceCode)
+                    val token = result.accessToken
+                    if (!token.isNullOrBlank()) {
+                        val identity = client.identity(token)
+                        val repos = client.repositories(token)
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            githubTokensBySlot[slot] = token
+                            githubReposBySlot[slot] = repos
+                            if (selectedAccount == slot) {
+                                githubStatusLabel?.text = "GitHub connection: " + identity.login + " • read-only"
+                                updateRepositorySpinner()
+                            }
+                            recordActivity("github_account_connected_readonly", "SUCCESS", slot)
+                            logAudit("github_account_connected_readonly")
+                            Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Token remains memory-only.", Toast.LENGTH_LONG).show()
+                        }
+                        return@execute
+                    }
+                    when (result.error) {
+                        "authorization_pending" -> Unit
+                        "slow_down" -> interval += 5L
+                        "expired_token" -> throw IllegalStateException("Device code expired")
+                        "access_denied" -> throw IllegalStateException("Authorization denied")
+                        "incorrect_client_credentials" -> throw IllegalStateException("Invalid Client ID")
+                    }
+                    if (result.intervalSeconds != null) interval = maxOf(interval, result.intervalSeconds)
+                }
+                throw IllegalStateException("Device authorization timed out")
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+            } catch (_: Exception) {
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Not connected"
+                    Toast.makeText(this, "Authorization failed or timed out. Verify app configuration and retry.", Toast.LENGTH_LONG).show()
+                    recordActivity("github_device_authorization_failed", "FAILED", slot)
+                    logAudit("github_device_authorization_failed")
+                }
+            }
+        }
+    }
+
+    private fun refreshGitHubMetadata() {
+        val slot = selectedAccount
+        val token = githubTokensBySlot[slot]
+        if (token.isNullOrBlank()) {
+            Toast.makeText(this, "Connect the selected account slot first.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val clientId = githubClientIds[slot] ?: return
+        githubStatusLabel?.text = "GitHub connection: Refreshing read-only metadata…"
+        githubExecutor.execute {
+            try {
+                val client = GitHubDeviceFlowClient(clientId)
+                val identity = client.identity(token)
+                val repos = client.repositories(token)
+                val first = repos.firstOrNull()
+                val runs = if (first == null) emptyList() else client.workflowRuns(token, first.owner, first.name)
+                val runners = if (first == null) emptyList() else client.runners(token, first.owner, first.name)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    githubReposBySlot[slot] = repos
+                    if (selectedAccount == slot) {
+                        updateRepositorySpinner()
+                        githubStatusLabel?.text = "GitHub: " + identity.login + " • " + repos.size + " repos • " + runs.size + " runs / " + runners.size + " runners (first repo)"
+                    }
+                    recordActivity("github_readonly_metadata_refreshed", "SUCCESS", slot)
+                    logAudit("github_readonly_metadata_refreshed")
+                }
+            } catch (_: Exception) {
+                runOnUiThread {
+                    if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Refresh failed"
+                    Toast.makeText(this, "Metadata refresh failed. Check token permissions and network.", Toast.LENGTH_LONG).show()
+                    recordActivity("github_readonly_metadata_refresh_failed", "FAILED", slot)
+                    logAudit("github_readonly_metadata_refresh_failed")
+                }
+            }
+        }
     }
 
     private fun refreshMetrics() {
