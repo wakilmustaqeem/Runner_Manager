@@ -504,7 +504,11 @@ class MainActivity : Activity() {
                 val selectedPath = selectedRepositoryBySlot[slot]
                 val selectedRepo = repos.firstOrNull { it.owner + "/" + it.name == selectedPath }
                 val runs = if (selectedRepo == null) emptyList() else client.workflowRuns(token, selectedRepo.owner, selectedRepo.name)
-                val runners = if (selectedRepo == null) emptyList() else client.runners(token, selectedRepo.owner, selectedRepo.name)
+                // Runner listing can require stronger repository permissions than workflow-run metadata.
+                // Keep successful workflow data usable if the runner endpoint is unavailable.
+                val runnerResult = if (selectedRepo == null) null
+                    else runCatching { client.runners(token, selectedRepo.owner, selectedRepo.name) }
+                val runners = runnerResult?.getOrNull().orEmpty()
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     githubReposBySlot[slot] = repos
@@ -516,7 +520,10 @@ class MainActivity : Activity() {
                         githubStatusLabel?.text = if (selectedRepo == null)
                             "GitHub: " + identity.login + " • " + repos.size + " repos • select a repository to load its metadata"
                         else
-                            "GitHub: " + identity.login + " • " + selectedRepo.owner + "/" + selectedRepo.name + " • " + runs.size + " runs / " + runners.size + " runners"
+                            "GitHub: " + identity.login + " • " + selectedRepo.owner + "/" + selectedRepo.name +
+                                " • " + runs.size + " workflow runs / " +
+                                if (runnerResult?.isSuccess == true) runners.size.toString() + " runners"
+                                else "runner metadata unavailable (permissions or endpoint)"
                     }
                     recordActivity("github_readonly_metadata_refreshed", "SUCCESS", slot)
                     logAudit("github_readonly_metadata_refreshed")
