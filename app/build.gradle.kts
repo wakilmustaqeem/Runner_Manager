@@ -2,7 +2,12 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+val configuredGitHubClientId = providers.gradleProperty("githubAppClientId")
+    .orElse(providers.environmentVariable("GITHUB_APP_CLIENT_ID"))
+    .getOrElse("")
+
 android {
+    buildFeatures { buildConfig = true }
     namespace = "com.fm.runnermanager"
     compileSdk = 35
     defaultConfig {
