@@ -62,6 +62,7 @@ class MainActivity : Activity() {
     private var selectedAccount = 1
     private var repoSpinner: Spinner? = null
     private var githubAccountSpinner: Spinner? = null
+    private var activeAccountLabel: TextView? = null
     private val githubExecutor = Executors.newSingleThreadExecutor()
     private val githubTokensBySlot = mutableMapOf<Int, String>()
     private val githubReposBySlot = mutableMapOf<Int, List<GitHubDeviceFlowClient.Repository>>()
@@ -146,31 +147,30 @@ class MainActivity : Activity() {
         root.addView(metrics, marginParams(bottom = 12))
 
         section(root, "Account & repository")
-        root.addView(text("Add as many GitHub accounts as you need. Each account authorizes independently; only repositories visible to that account are listed.", 13f, muted, false)
+        root.addView(text("One active GitHub account at a time. Other added accounts stay inactive until selected. Repositories are fetched automatically after authorization.", 13f, muted, false)
             .apply { setPadding(0, 0, 0, dp(7)) })
-        val accountSpinner = Spinner(this)
-        accountSpinner.adapter = neonAdapter(accountLabels())
-        accountSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
-            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val ids = accountIds()
-                if (position in ids.indices) {
-                    selectedAccount = ids[position]
-                    updateRepositorySpinner()
-                    updateGitHubConnectionLabel()
-                }
-            }
+        val activeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(7), dp(6), dp(7))
+            background = roundedPanel(panel, 12)
         }
-        accountSpinner.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
-        githubAccountSpinner = accountSpinner
-        root.addView(accountSpinner, marginParams(bottom = 8))
+        activeAccountLabel = text(activeAccountDisplay(), 14f, 0xFF4DFF88.toInt(), true).apply {
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+        }
+        activeRow.addView(activeAccountLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        activeRow.addView(Button(this).apply {
+            text = "Switch"
+            setOnClickListener { showAccountSwitcher() }
+        })
+        root.addView(activeRow, marginParams(bottom = 8))
         val accountActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         accountActions.addView(Button(this).apply {
-            text = "Add account"
+            text = "Add & connect account"
             setOnClickListener { addAccount() }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
         accountActions.addView(Button(this).apply {
-            text = "Remove account slot"
+            text = "Remove selected"
             contentDescription = "danger-action"
             setOnClickListener { removeSelectedAccount() }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
@@ -193,14 +193,6 @@ class MainActivity : Activity() {
         }
         root.addView(repoSpinner, marginParams(bottom = 8))
         updateRepositorySpinner()
-        root.addView(Button(this).apply {
-            text = "Edit selected account label"
-            setOnClickListener {
-                val alias = preferences.getString(aliasKey(selectedAccount), defaultAlias(selectedAccount)) ?: defaultAlias(selectedAccount)
-                editAlias(selectedAccount, alias)
-            }
-        }, marginParams(bottom = 12))
-
         section(root, "Runner & job activity")
         val runnerPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -345,9 +337,55 @@ class MainActivity : Activity() {
     }
 
     private fun accountLabels(): List<String> = accountIds().map { id ->
-        val alias = preferences.getString(aliasKey(id), defaultAlias(id)) ?: defaultAlias(id)
         val login = githubLoginsBySlot[id]
-        "Account " + id + " • " + (login ?: alias) + if (githubTokensBySlot.containsKey(id)) " • connected" else ""
+        val connected = githubTokensBySlot.containsKey(id) && login != null
+        "Account " + id + " • " + (login ?: "Not connected") +
+            if (id == selectedAccount) " • ACTIVE" else if (connected) " • inactive (connected)" else " • inactive"
+    }
+
+    private fun activeAccountDisplay(): String {
+        val login = githubLoginsBySlot[selectedAccount]
+        return if (githubTokensBySlot.containsKey(selectedAccount) && login != null)
+            "🟢 ACTIVE • " + login + " • Account " + selectedAccount
+        else "🔴 ACTIVE SLOT • Account " + selectedAccount + " • Not connected"
+    }
+
+    private fun updateActiveAccountDisplay() {
+        activeAccountLabel?.apply {
+            text = activeAccountDisplay()
+            setTextColor(if (githubTokensBySlot.containsKey(selectedAccount) && githubLoginsBySlot[selectedAccount] != null)
+                0xFF4DFF88.toInt() else 0xFFFF6B6B.toInt())
+        }
+    }
+
+    private fun showAccountSwitcher() {
+        val ids = accountIds()
+        val labels = ids.map { id ->
+            val login = githubLoginsBySlot[id]
+            val connected = githubTokensBySlot.containsKey(id) && login != null
+            (if (id == selectedAccount) "🟢 ACTIVE  •  " else "○ INACTIVE  •  ") +
+                "Account " + id + "  •  " + (login ?: "Not connected") +
+                if (connected && id != selectedAccount) " (session ready)" else ""
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Choose one active GitHub account")
+            .setSingleChoiceItems(labels, ids.indexOf(selectedAccount).coerceAtLeast(0)) { dialog, which ->
+                if (which in ids.indices) {
+                    val previous = selectedAccount
+                    selectedAccount = ids[which]
+                    updateActiveAccountDisplay()
+                    updateRepositorySpinner()
+                    updateGitHubConnectionLabel()
+                    recordActivity("github_active_account_switched", "SUCCESS", selectedAccount)
+                    logAudit("github_active_account_switched")
+                    dialog.dismiss()
+                    if (previous != selectedAccount && githubTokensBySlot.containsKey(selectedAccount)) {
+                        refreshGitHubMetadata()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun addAccount() {
@@ -358,7 +396,7 @@ class MainActivity : Activity() {
         recordActivity("github_account_entry_added")
         logAudit("github_account_entry_added")
         renderDashboard()
-        Toast.makeText(this, "Account entry added. Connect it to authorize GitHub.", Toast.LENGTH_SHORT).show()
+        beginGitHubConnection()
     }
 
     private fun disconnectSelectedAccount() {
@@ -375,8 +413,7 @@ class MainActivity : Activity() {
         selectedRepositoryBySlot.remove(slot)
         updateRepositorySpinner()
         updateGitHubConnectionLabel()
-        githubAccountSpinner?.adapter = neonAdapter(accountLabels())
-        githubAccountSpinner?.setSelection(accountIds().indexOf(slot).coerceAtLeast(0), false)
+        updateActiveAccountDisplay()
         recordActivity("github_account_disconnected_local_session_cleared", "SUCCESS", slot)
         logAudit("github_account_disconnected_local_session_cleared")
         Toast.makeText(this, "Disconnected locally. GitHub authorization was not revoked.", Toast.LENGTH_LONG).show()
@@ -530,8 +567,7 @@ class MainActivity : Activity() {
                             githubTokensBySlot[slot] = token
                             githubReposBySlot[slot] = repos
                             githubLoginsBySlot[slot] = identity.login
-                            githubAccountSpinner?.adapter = neonAdapter(accountLabels())
-                            githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
+                            updateActiveAccountDisplay()
                             if (selectedAccount == slot) {
                                 updateGitHubConnectionLabel()
                                 updateRepositorySpinner()
@@ -592,8 +628,7 @@ class MainActivity : Activity() {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     githubReposBySlot[slot] = repos
                     githubLoginsBySlot[slot] = identity.login
-                    githubAccountSpinner?.adapter = neonAdapter(accountLabels())
-                    githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
+                    updateActiveAccountDisplay()
                     if (selectedAccount == slot) {
                         updateRepositorySpinner()
                         githubStatusLabel?.apply {
