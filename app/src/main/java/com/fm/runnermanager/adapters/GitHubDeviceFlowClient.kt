@@ -35,8 +35,18 @@ class GitHubDeviceFlowClient(
 
     data class TokenPoll(
         val accessToken: String? = null,
+        val refreshToken: String? = null,
+        val expiresInSeconds: Long? = null,
+        val refreshTokenExpiresInSeconds: Long? = null,
         val error: String? = null,
         val intervalSeconds: Long? = null
+    )
+
+    data class RefreshedToken(
+        val accessToken: String,
+        val refreshToken: String?,
+        val expiresInSeconds: Long?,
+        val refreshTokenExpiresInSeconds: Long?
     )
 
     data class Identity(val login: String, val name: String?)
@@ -105,8 +115,33 @@ class GitHubDeviceFlowClient(
         val token = json.optString("access_token").takeIf { it.isNotBlank() }
         return TokenPoll(
             accessToken = token,
+            refreshToken = json.optString("refresh_token").takeIf { it.isNotBlank() },
+            expiresInSeconds = json.optLong("expires_in", 0L).takeIf { it > 0L },
+            refreshTokenExpiresInSeconds = json.optLong("refresh_token_expires_in", 0L).takeIf { it > 0L },
             error = json.optString("error").takeIf { it.isNotBlank() },
             intervalSeconds = json.optLong("interval", 0L).takeIf { it > 0L }
+        )
+    }
+
+    /** Refresh an expiring GitHub App user token when token expiration is enabled for the app. */
+    fun refreshUserToken(refreshToken: String): RefreshedToken {
+        require(refreshToken.isNotBlank()) { "Refresh token required" }
+        val json = postForm(
+            "https://github.com/login/oauth/access_token",
+            mapOf(
+                "client_id" to clientId,
+                "grant_type" to "refresh_token",
+                "refresh_token" to refreshToken
+            ),
+            acceptJson = true
+        )
+        val access = json.optString("access_token").takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("GitHub did not return a refreshed access token")
+        return RefreshedToken(
+            accessToken = access,
+            refreshToken = json.optString("refresh_token").takeIf { it.isNotBlank() },
+            expiresInSeconds = json.optLong("expires_in", 0L).takeIf { it > 0L },
+            refreshTokenExpiresInSeconds = json.optLong("refresh_token_expires_in", 0L).takeIf { it > 0L }
         )
     }
 
