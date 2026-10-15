@@ -663,7 +663,9 @@ class MainActivity : Activity() {
     private fun addChoice(parent: LinearLayout, title: String, key: String, labels: Array<String>, values: Array<Int>, defaultValue: Int) {
         parent.addView(text(title, 14f, ink, true).apply { setPadding(0, dp(7), 0, dp(2)) })
         val spinner = Spinner(this)
-        spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+        spinner.adapter = neonAdapter(labels.toList())
+        spinner.backgroundTintList = android.content.res.ColorStateList.valueOf(accent)
+        spinner.setBackgroundColor(panel)
         val saved = policyPreferences.getInt(key, defaultValue)
         spinner.setSelection(values.indexOf(saved).takeIf { it >= 0 } ?: 0)
         spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
