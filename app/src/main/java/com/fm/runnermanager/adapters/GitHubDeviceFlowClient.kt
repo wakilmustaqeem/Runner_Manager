@@ -71,7 +71,11 @@ class GitHubDeviceFlowClient(
     fun requestDeviceCode(): DeviceCode {
         val json = postForm(
             "https://github.com/login/device/code",
-            mapOf("client_id" to clientId),
+            mapOf(
+                "client_id" to clientId,
+                // Required to list private repositories the authorized user can access.
+                "scope" to "repo read:user"
+            ),
             acceptJson = true
         )
         return DeviceCode(
