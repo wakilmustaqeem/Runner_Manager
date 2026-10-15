@@ -702,14 +702,18 @@ class MainActivity : Activity() {
         auditPreferences.edit().putString("entries", next.joinToString("\n")).apply()
     }
 
-    private fun recordActivity(action: String) {
-        val result = when {
+    private fun recordActivity(
+        action: String,
+        resultOverride: String? = null,
+        accountSlot: Int = selectedAccount
+    ) {
+        val result = resultOverride ?: when {
             action.contains("unavailable", ignoreCase = true) -> "Unavailable"
             action.contains("failed", ignoreCase = true) || action.contains("error", ignoreCase = true) -> "Failed"
             listOf("copied", "saved", "reset", "enabled", "disabled", "changed", "cleared").any { action.contains(it, ignoreCase = true) } -> "Success"
             else -> "Recorded"
         }
-        logHistory(action, result, selectedAccount)
+        logHistory(action, result, accountSlot)
     }
 
     private fun logHistory(action: String, result: String, accountSlot: Int) {
