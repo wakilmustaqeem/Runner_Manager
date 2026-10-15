@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-labelledby="title desc">
+  <title id="title">FM Runner Manager</title>
+  <desc id="desc">Local-first runner management project thumbnail with dashboard, history, audit log and safe-control themes.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#071426"/><stop offset=".58" stop-color="#0b1830"/><stop offset="1" stop-color="#10152a"/></linearGradient>
+    <linearGradient id="cyan" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#67f5ff"/><stop offset="1" stop-color="#1ca9ff"/></linearGradient>
+    <linearGradient id="panel" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#142844"/><stop offset="1" stop-color="#0d1c32"/></linearGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="16"/></filter>
+  </defs>
+  <rect width="1280" height="720" rx="30" fill="url(#bg)"/>
+  <circle cx="1030" cy="190" r="180" fill="#00cfff" opacity=".09" filter="url(#glow)"/>
+  <circle cx="180" cy="630" r="200" fill="#2879ff" opacity=".08" filter="url(#glow)"/>
+  <path d="M0 540 C280 460 410 760 720 630 S1060 470 1280 550" fill="none" stroke="#254e78" stroke-width="2" opacity=".45"/>
+  <g transform="translate(68 76)">
+    <rect width="66" height="66" rx="18" fill="url(#cyan)"/>
+    <path d="M17 21h32v7H24v10h21v7H24v10h25v7H17z" fill="#071426"/>
+    <path d="M42 17l10 10-10 10" fill="none" stroke="#071426" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="88" y="27" font-family="Arial,Helvetica,sans-serif" font-size="18" font-weight="700" letter-spacing="4" fill="#7eefff">LOCAL-FIRST ANDROID PROJECT</text>
+    <text x="88" y="70" font-family="Arial,Helvetica,sans-serif" font-size="40" font-weight="800" fill="#f4f8ff">FM RUNNER MANAGER</text>
+  </g>
+  <text x="72" y="236" font-family="Arial,Helvetica,sans-serif" font-size="26" fill="#aebfd8">HISTORY  •  AUDIT  •  SAFE CONTROL</text>
+  <g transform="translate(72 292)">
+    <rect width="490" height="250" rx="22" fill="url(#panel)" stroke="#274666" stroke-width="2"/>
+    <text x="28" y="42" font-family="Arial,Helvetica,sans-serif" font-size="16" font-weight="700" letter-spacing="2" fill="#8da9c9">MANAGER OVERVIEW</text>
+    <g transform="translate(28 66)">
+      <rect width="205" height="72" rx="13" fill="#10243d" stroke="#285274"/>
+      <circle cx="24" cy="26" r="7" fill="#f6b94a"/>
+      <text x="42" y="31" font-family="Arial,Helvetica,sans-serif" font-size="15" fill="#d8e6f8">RUNNER STATUS</text>
+      <text x="20" y="57" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="700" fill="#ffd27c">UNKNOWN</text>
+      <rect x="225" width="209" height="72" rx="13" fill="#10243d" stroke="#285274"/>
+      <path d="M245 20h19v23h-19z M249 16h11 M249 47h11" fill="none" stroke="#66e9f6" stroke-width="2.5" stroke-linecap="round"/>
+      <text x="276" y="31" font-family="Arial,Helvetica,sans-serif" font-size="15" fill="#d8e6f8">LOCAL HISTORY</text>
+      <text x="245" y="57" font-family="Arial,Helvetica,sans-serif" font-size="17" font-weight="700" fill="#75eafa">ACTIVITY LOG</text>
+    </g>
+    <g transform="translate(28 158)">
+      <rect width="434" height="58" rx="12" fill="#0c1b30" stroke="#25415f"/>
+      <path d="M20 28l8 8 16-18" fill="none" stroke="#67f5ff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="58" y="25" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="700" fill="#eef6ff">PRIVACY BY DESIGN</text>
+      <text x="58" y="44" font-family="Arial,Helvetica,sans-serif" font-size="13" fill="#8da9c9">Metadata only • No secrets in logs</text>
+    </g>
+  </g>
+  <g transform="translate(620 180)">
+    <rect width="570" height="400" rx="28" fill="#050c18" stroke="#385b7e" stroke-width="3"/>
+    <rect x="13" y="13" width="544" height="374" rx="19" fill="#0b1729"/>
+    <rect x="220" y="22" width="130" height="8" rx="4" fill="#27405d"/>
+    <text x="36" y="68" font-family="Arial,Helvetica,sans-serif" font-size="19" font-weight="700" fill="#eaf4ff">RUNNER DASHBOARD</text>
+    <text x="36" y="94" font-family="Arial,Helvetica,sans-serif" font-size="13" fill="#829bb9">Account slots stay separate</text>
+    <g transform="translate(36 118)">
+      <rect width="498" height="62" rx="12" fill="#132844" stroke="#2c4d70"/>
+      <circle cx="26" cy="31" r="9" fill="#66e9f6"/>
+      <text x="48" y="27" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="700" fill="#edf7ff">HISTORY</text>
+      <text x="48" y="46" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#91aac6">Search • Filter • Copy • Export</text>
+      <path d="M466 24l8 8-8 8" fill="none" stroke="#6feafa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect y="76" width="498" height="62" rx="12" fill="#132844" stroke="#2c4d70"/>
+      <path d="M18 99h18v19H18z M22 95h10" fill="none" stroke="#f5bd55" stroke-width="2.5" stroke-linejoin="round"/>
+      <text x="48" y="103" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="700" fill="#edf7ff">AUDIT LOG</text>
+      <text x="48" y="122" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#91aac6">Security and admin events</text>
+      <path d="M466 100l8 8-8 8" fill="none" stroke="#f5bd55" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <rect y="152" width="498" height="62" rx="12" fill="#132844" stroke="#2c4d70"/>
+      <path d="M19 177h17v16H19z M23 172h9" fill="none" stroke="#6feafa" stroke-width="2.5" stroke-linejoin="round"/>
+      <text x="48" y="179" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="700" fill="#edf7ff">DEVICE DIAGNOSTICS</text>
+      <text x="48" y="198" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#91aac6">Android • ABI • Storage • Memory</text>
+      <path d="M466 176l8 8-8 8" fill="none" stroke="#6feafa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="36" y="365" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#6684a6">Illustrative concept UI — not a live connection</text>
+  </g>
+  <g transform="translate(72 616)">
+    <rect width="262" height="42" rx="21" fill="#112941" stroke="#2e5a79"/>
+    <circle cx="23" cy="21" r="6" fill="#6feafa"/>
+    <text x="41" y="27" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="700" letter-spacing="1" fill="#dcefff">LOCAL-FIRST</text>
+    <rect x="278" width="270" height="42" rx="21" fill="#112941" stroke="#2e5a79"/>
+    <path d="M300 15l8-5 8 5v8c0 5-8 10-8 10s-8-5-8-10z" fill="none" stroke="#f6bf59" stroke-width="2"/>
+    <text x="328" y="27" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="700" letter-spacing="1" fill="#dcefff">ACCOUNT ISOLATION</text>
+  </g>
+  <text x="1198" y="678" text-anchor="end" font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#55708f">PROJECT PREVIEW</text>
+</svg>
