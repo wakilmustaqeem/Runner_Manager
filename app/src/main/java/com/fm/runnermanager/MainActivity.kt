@@ -820,9 +820,15 @@ class MainActivity : Activity() {
 
     private fun showAuditLog() {
         val entries = auditPreferences.getString("entries", "") ?: ""
+        val displayText = if (entries.isBlank()) "No local security/admin events recorded yet." else entries
         AlertDialog.Builder(this).setTitle("Local Security Audit Log")
-            .setMessage(if (entries.isBlank()) "No local security/admin events recorded yet." else entries)
+            .setMessage(displayText)
             .setPositiveButton("Close", null)
+            .setNegativeButton("Copy log") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Local Security Audit Log", displayText))
+                Toast.makeText(this@MainActivity, "Audit log copied to clipboard.", Toast.LENGTH_SHORT).show()
+            }
             .setNeutralButton("Clear log…") { _, _ ->
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle("Clear Security Audit Log?")
