@@ -495,6 +495,49 @@ class MainActivity : Activity() {
     }
 
     /**
+     * Refresh close-to-expiry GitHub App tokens when the app returns refresh-token credentials.
+     * If refresh is unavailable, keep the current token and let GitHub verification decide.
+     */
+    private fun ensureUsableToken(client: GitHubDeviceFlowClient, slot: Int, currentToken: String): String {
+        val expiresAt = sessionMetadataPreferences.getLong("access_expires_at_slot_" + slot, 0L)
+        val refreshToken = tokenVault.loadRefreshToken(slot)
+        val shouldRefresh = refreshToken != null &&
+            (expiresAt > 0L && expiresAt <= System.currentTimeMillis() + 5 * 60 * 1000L)
+        if (shouldRefresh) {
+            try {
+                val refreshed = client.refreshUserToken(refreshToken!!)
+                tokenVault.save(slot, refreshed.accessToken)
+                refreshed.refreshToken?.let { tokenVault.saveRefreshToken(slot, it) }
+                val expiry = refreshed.expiresInSeconds?.let { System.currentTimeMillis() + it * 1000L } ?: 0L
+                sessionMetadataPreferences.edit().putLong("access_expires_at_slot_" + slot, expiry).apply()
+                githubTokensBySlot[slot] = refreshed.accessToken
+                recordActivity("github_access_token_refreshed", "SUCCESS", slot)
+                logAudit("github_access_token_refreshed")
+                return refreshed.accessToken
+            } catch (_: Exception) {
+                recordActivity("github_access_token_refresh_failed_token_preserved", "FAILED", slot)
+                logAudit("github_access_token_refresh_failed_token_preserved")
+            }
+        }
+        return try {
+            client.identity(currentToken)
+            currentToken
+        } catch (firstFailure: Exception) {
+            val savedRefresh = tokenVault.loadRefreshToken(slot) ?: throw firstFailure
+            val refreshed = client.refreshUserToken(savedRefresh)
+            tokenVault.save(slot, refreshed.accessToken)
+            refreshed.refreshToken?.let { tokenVault.saveRefreshToken(slot, it) }
+            val expiry = refreshed.expiresInSeconds?.let { System.currentTimeMillis() + it * 1000L } ?: 0L
+            sessionMetadataPreferences.edit().putLong("access_expires_at_slot_" + slot, expiry).apply()
+            githubTokensBySlot[slot] = refreshed.accessToken
+            client.identity(refreshed.accessToken)
+            recordActivity("github_access_token_refreshed_after_verification_failure", "SUCCESS", slot)
+            logAudit("github_access_token_refreshed_after_verification_failure")
+            refreshed.accessToken
+        }
+    }
+
+    /**
      * Restore saved sessions on launch. GitHub is always consulted before showing CONNECTED.
      * Transient failures keep encrypted credentials and never issue runner stop/start commands.
      */
@@ -524,11 +567,12 @@ class MainActivity : Activity() {
                 try {
                     require(clientId.isNotBlank()) { "GitHub Client ID unavailable" }
                     val client = GitHubDeviceFlowClient(clientId)
-                    val identity = client.identity(token)
-                    val repos = client.repositories(token)
+                    val usableToken = ensureUsableToken(client, slot, token)
+                    val identity = client.identity(usableToken)
+                    val repos = client.repositories(usableToken)
                     runOnUiThread {
                         if (isFinishing || isDestroyed) return@runOnUiThread
-                        githubTokensBySlot[slot] = token
+                        githubTokensBySlot[slot] = usableToken
                         githubLoginsBySlot[slot] = identity.login
                         githubReposBySlot[slot] = repos
                         if (selectedAccount == slot) {
@@ -639,7 +683,12 @@ class MainActivity : Activity() {
                             if (isFinishing || isDestroyed) return@runOnUiThread
                             try {
                                 tokenVault.save(slot, token)
-                                sessionMetadataPreferences.edit().putString("client_id_slot_" + slot, clientId).apply()
+                                result.refreshToken?.let { tokenVault.saveRefreshToken(slot, it) }
+                                val expiry = result.expiresInSeconds?.let { System.currentTimeMillis() + it * 1000L } ?: 0L
+                                sessionMetadataPreferences.edit()
+                                    .putString("client_id_slot_" + slot, githubClientIds[slot].orEmpty())
+                                    .putLong("access_expires_at_slot_" + slot, expiry)
+                                    .apply()
                             } catch (_: Exception) {
                                 recordActivity("github_session_secure_save_failed", "FAILED", slot)
                                 logAudit("github_session_secure_save_failed")
@@ -695,17 +744,18 @@ class MainActivity : Activity() {
         githubExecutor.execute {
             try {
                 val client = GitHubDeviceFlowClient(clientId)
-                val identity = client.identity(token)
-                val repos = client.repositories(token)
+                val usableToken = ensureUsableToken(client, slot, token)
+                val identity = client.identity(usableToken)
+                val repos = client.repositories(usableToken)
                 // Automatically load metadata for the first repository when no prior choice exists.
                 val selectedPath = selectedRepositoryBySlot[slot]
                     ?: repos.firstOrNull()?.let { it.owner + "/" + it.name }
                 val selectedRepo = repos.firstOrNull { it.owner + "/" + it.name == selectedPath }
-                val runs = if (selectedRepo == null) emptyList() else client.workflowRuns(token, selectedRepo.owner, selectedRepo.name)
+                val runs = if (selectedRepo == null) emptyList() else client.workflowRuns(usableToken, selectedRepo.owner, selectedRepo.name)
                 // Runner listing can require stronger repository permissions than workflow-run metadata.
                 // Keep successful workflow data usable if the runner endpoint is unavailable.
                 val runnerResult = if (selectedRepo == null) null
-                    else runCatching { client.runners(token, selectedRepo.owner, selectedRepo.name) }
+                    else runCatching { client.runners(usableToken, selectedRepo.owner, selectedRepo.name) }
                 val runners = runnerResult?.getOrNull().orEmpty()
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
