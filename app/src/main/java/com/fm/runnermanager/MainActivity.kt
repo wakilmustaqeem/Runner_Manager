@@ -61,7 +61,7 @@ class MainActivity : Activity() {
     private var lastCpu = readCpuCounters()
     private var selectedAccount = 1
     private var repoSpinner: Spinner? = null
-    private var githubAccountSpinner: Spinner? = null
+    private var activeAccountLabel: TextView? = null
     private val githubExecutor = Executors.newSingleThreadExecutor()
     private val githubTokensBySlot = mutableMapOf<Int, String>()
     private val githubReposBySlot = mutableMapOf<Int, List<GitHubDeviceFlowClient.Repository>>()
@@ -79,6 +79,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        selectedAccount = accountIds().first()
         renderDashboard()
         refreshMetrics()
         handler.postDelayed(refreshTask, 3000L)
@@ -146,31 +147,32 @@ class MainActivity : Activity() {
         root.addView(metrics, marginParams(bottom = 12))
 
         section(root, "Account & repository")
-        root.addView(text("Add as many GitHub accounts as you need. Each account authorizes independently; only repositories visible to that account are listed.", 13f, muted, false)
+        root.addView(text("One active GitHub account at a time. Other added accounts stay inactive until selected. Repositories are fetched automatically after authorization.", 13f, muted, false)
             .apply { setPadding(0, 0, 0, dp(7)) })
-        val accountSpinner = Spinner(this)
-        accountSpinner.adapter = neonAdapter(accountLabels())
-        accountSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
-            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
-                val ids = accountIds()
-                if (position in ids.indices) {
-                    selectedAccount = ids[position]
-                    updateRepositorySpinner()
-                    updateGitHubConnectionLabel()
-                }
-            }
+        val activeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(7), dp(6), dp(7))
+            background = roundedPanel(panel, 12)
         }
-        accountSpinner.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
-        githubAccountSpinner = accountSpinner
-        root.addView(accountSpinner, marginParams(bottom = 8))
+        val activeLabel = text(activeAccountDisplay(), 14f, 0xFF4DFF88.toInt(), true).apply {
+            setPadding(dp(4), dp(4), dp(4), dp(4))
+        }
+        activeAccountLabel = activeLabel
+        activeRow.addView(activeLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        activeRow.addView(Button(this).apply {
+            text = "Switch"
+            setOnClickListener { showAccountSwitcher() }
+        })
+        root.addView(activeRow, marginParams(bottom = 8))
         val accountActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         accountActions.addView(Button(this).apply {
-            text = "Add account"
+            text = "Add & connect account"
             setOnClickListener { addAccount() }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
         accountActions.addView(Button(this).apply {
-            text = "Disconnect / remove"
+            text = "Remove selected"
+            contentDescription = "danger-action"
             setOnClickListener { removeSelectedAccount() }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
         root.addView(accountActions, marginParams(bottom = 8))
@@ -192,26 +194,23 @@ class MainActivity : Activity() {
         }
         root.addView(repoSpinner, marginParams(bottom = 8))
         updateRepositorySpinner()
-        root.addView(Button(this).apply {
-            text = "Edit selected account label"
-            setOnClickListener {
-                val alias = preferences.getString(aliasKey(selectedAccount), defaultAlias(selectedAccount)) ?: defaultAlias(selectedAccount)
-                editAlias(selectedAccount, alias)
-            }
-        }, marginParams(bottom = 12))
-
         section(root, "Runner & job activity")
         val runnerPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(13), dp(12), dp(13), dp(12))
             background = roundedPanel(panel, 18)
         }
-        githubStatusLabel = text("GitHub connection: Not configured", 14f, ink, true)
+        githubStatusLabel = text("🔴 DISCONNECTED • Connect GitHub to begin", 14f, 0xFFFF6B6B.toInt(), true)
         runnerPanel.addView(githubStatusLabel!!)
-        runnerPanel.addView(text("Runner status: Read-only metadata only; Start/Stop disabled", 13f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+        runnerPanel.addView(text("Runner control: not connected to DroidRunner service yet; Start/Stop will not launch or stop the runner.", 13f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
         runnerPanel.addView(Button(this).apply {
-            text = "Connect GitHub (read-only)"
+            text = "🟢 Connect GitHub"
             setOnClickListener { beginGitHubConnection() }
+        }, marginParams(bottom = 6))
+        runnerPanel.addView(Button(this).apply {
+            text = "🔴 Disconnect GitHub"
+            contentDescription = "danger-action"
+            setOnClickListener { disconnectSelectedAccount() }
         }, marginParams(bottom = 6))
         runnerPanel.addView(Button(this).apply {
             text = "Refresh repositories / runner metadata"
@@ -233,13 +232,13 @@ class MainActivity : Activity() {
         val controlRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         controlRow.addView(Button(this).apply {
             text = "Start runner"
-            isEnabled = false
-            contentDescription = "Disabled until an authorized runner control adapter exists"
+            contentDescription = "runner-control-unavailable"
+            setOnClickListener { showRunnerControlUnavailable("start") }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(5) })
         controlRow.addView(Button(this).apply {
             text = "Stop runner"
-            isEnabled = false
-            contentDescription = "Disabled until an authorized runner control adapter exists"
+            contentDescription = "runner-control-unavailable"
+            setOnClickListener { showRunnerControlUnavailable("stop") }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(5) })
         runnerPanel.addView(controlRow)
         root.addView(runnerPanel, marginParams(bottom = 12))
@@ -281,8 +280,9 @@ class MainActivity : Activity() {
     private fun styleTree(view: View) {
         when (view) {
             is Button -> {
-                view.backgroundTintList = android.content.res.ColorStateList.valueOf(accent)
-                view.setTextColor(0xFF071426.toInt())
+                val danger = view.contentDescription == "danger-action"
+                view.backgroundTintList = android.content.res.ColorStateList.valueOf(if (danger) 0xFFFF4D5A.toInt() else accent)
+                view.setTextColor(if (danger) 0xFFFFFFFF.toInt() else 0xFF071426.toInt())
                 view.textSize = 13f
                 view.isAllCaps = false
             }
@@ -299,14 +299,14 @@ class MainActivity : Activity() {
     }
 
     /** Consistent high-contrast neon text for every spinner and dropdown in the app. */
-    private fun neonAdapter(items: List<String>): ArrayAdapter<String> =
+    private fun neonAdapter(items: List<String>, itemTextSizeSp: Float = 14f): ArrayAdapter<String> =
         object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
             init { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
 
             private fun styleItem(view: View): View {
                 (view as? TextView)?.apply {
                     setTextColor(accent)
-                    textSize = 14f
+                    textSize = itemTextSizeSp
                     setPadding(dp(12), dp(10), dp(12), dp(10))
                     setBackgroundColor(panel)
                 }
@@ -338,9 +338,55 @@ class MainActivity : Activity() {
     }
 
     private fun accountLabels(): List<String> = accountIds().map { id ->
-        val alias = preferences.getString(aliasKey(id), defaultAlias(id)) ?: defaultAlias(id)
         val login = githubLoginsBySlot[id]
-        "Account " + id + " • " + (login ?: alias) + if (githubTokensBySlot.containsKey(id)) " • connected" else ""
+        val connected = githubTokensBySlot.containsKey(id) && login != null
+        "Account " + id + " • " + (login ?: "Not connected") +
+            if (id == selectedAccount) " • ACTIVE" else if (connected) " • inactive (connected)" else " • inactive"
+    }
+
+    private fun activeAccountDisplay(): String {
+        val login = githubLoginsBySlot[selectedAccount]
+        return if (githubTokensBySlot.containsKey(selectedAccount) && login != null)
+            "🟢 ACTIVE • " + login + " • Account " + selectedAccount
+        else "🔴 ACTIVE SLOT • Account " + selectedAccount + " • Not connected"
+    }
+
+    private fun updateActiveAccountDisplay() {
+        activeAccountLabel?.apply {
+            text = activeAccountDisplay()
+            setTextColor(if (githubTokensBySlot.containsKey(selectedAccount) && githubLoginsBySlot[selectedAccount] != null)
+                0xFF4DFF88.toInt() else 0xFFFF6B6B.toInt())
+        }
+    }
+
+    private fun showAccountSwitcher() {
+        val ids = accountIds()
+        val labels = ids.map { id ->
+            val login = githubLoginsBySlot[id]
+            val connected = githubTokensBySlot.containsKey(id) && login != null
+            (if (id == selectedAccount) "🟢 ACTIVE  •  " else "○ INACTIVE  •  ") +
+                "Account " + id + "  •  " + (login ?: "Not connected") +
+                if (connected && id != selectedAccount) " (session ready)" else ""
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Choose one active GitHub account")
+            .setSingleChoiceItems(labels, ids.indexOf(selectedAccount).coerceAtLeast(0)) { dialog, which ->
+                if (which in ids.indices) {
+                    val previous = selectedAccount
+                    selectedAccount = ids[which]
+                    updateActiveAccountDisplay()
+                    updateRepositorySpinner()
+                    updateGitHubConnectionLabel()
+                    recordActivity("github_active_account_switched", "SUCCESS", selectedAccount)
+                    logAudit("github_active_account_switched")
+                    dialog.dismiss()
+                    if (previous != selectedAccount && githubTokensBySlot.containsKey(selectedAccount)) {
+                        refreshGitHubMetadata()
+                    }
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun addAccount() {
@@ -351,7 +397,37 @@ class MainActivity : Activity() {
         recordActivity("github_account_entry_added")
         logAudit("github_account_entry_added")
         renderDashboard()
-        Toast.makeText(this, "Account entry added. Connect it to authorize GitHub.", Toast.LENGTH_SHORT).show()
+        beginGitHubConnection()
+    }
+
+    private fun disconnectSelectedAccount() {
+        val slot = selectedAccount
+        if (!githubTokensBySlot.containsKey(slot)) {
+            Toast.makeText(this, "This account slot is already disconnected.", Toast.LENGTH_SHORT).show()
+            updateGitHubConnectionLabel()
+            return
+        }
+        githubTokensBySlot.remove(slot)
+        githubReposBySlot.remove(slot)
+        githubClientIds.remove(slot)
+        githubLoginsBySlot.remove(slot)
+        selectedRepositoryBySlot.remove(slot)
+        updateRepositorySpinner()
+        updateGitHubConnectionLabel()
+        updateActiveAccountDisplay()
+        recordActivity("github_account_disconnected_local_session_cleared", "SUCCESS", slot)
+        logAudit("github_account_disconnected_local_session_cleared")
+        Toast.makeText(this, "Disconnected locally. GitHub authorization was not revoked.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun showRunnerControlUnavailable(action: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Runner " + action + " is not connected")
+            .setMessage("No action was taken. This app currently reads GitHub metadata but has no verified control bridge to the DroidRunner process on this phone. GitHub authorization alone cannot start or stop a local runner. The DroidRunner control interface must be integrated and tested before this button can safely control it.")
+            .setPositiveButton("Close", null)
+            .show()
+        recordActivity("runner_" + action + "_blocked_no_control_bridge", "UNAVAILABLE", selectedAccount)
+        logAudit("runner_" + action + "_blocked_no_control_bridge")
     }
 
     private fun removeSelectedAccount() {
@@ -386,7 +462,8 @@ class MainActivity : Activity() {
         val repos = githubReposBySlot[selectedAccount].orEmpty()
         val labels = if (repos.isEmpty()) listOf("Repositories not loaded — connect this account first")
             else repos.map { it.owner + "/" + it.name + if (it.isPrivate) " • private" else " • public" }
-        spinner.adapter = neonAdapter(labels)
+        // Repository paths can be long (owner/repo); use compact text so the full path fits.
+        spinner.adapter = neonAdapter(labels, 11f)
         spinner.isEnabled = repos.isNotEmpty()
         val selected = selectedRepositoryBySlot[selectedAccount]
         val index = repos.indexOfFirst { it.owner + "/" + it.name == selected }
@@ -399,9 +476,15 @@ class MainActivity : Activity() {
 
     private fun updateGitHubConnectionLabel() {
         val login = githubLoginsBySlot[selectedAccount]
-        githubStatusLabel?.text = if (githubTokensBySlot.containsKey(selectedAccount) && login != null)
-            "GitHub connection: " + login + " • read-only"
-        else "GitHub connection: Not connected"
+        githubStatusLabel?.apply {
+            if (githubTokensBySlot.containsKey(selectedAccount) && login != null) {
+                text = "🟢 CONNECTED • " + login + " • read-only"
+                setTextColor(0xFF4DFF88.toInt())
+            } else {
+                text = "🔴 DISCONNECTED • Connect GitHub to begin"
+                setTextColor(0xFFFF6B6B.toInt())
+            }
+        }
     }
 
     private fun beginGitHubConnection() {
@@ -422,7 +505,7 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this)
             .setTitle("GitHub App setup required")
-            .setMessage("This build has no GitHub App Client ID configured. Set GITHUB_APP_CLIENT_ID in the build environment. For local developer testing only, you may enter a public Client ID here. Never enter a password, PAT, client secret, or runner token.")
+            .setMessage("This build has no GitHub Client ID configured. Set GITHUB_APP_CLIENT_ID in the build environment. For local developer testing only, enter the registered public Client ID. OAuth Apps need the repo scope for private repositories; GitHub Apps need Metadata: read and access to the intended repositories configured in GitHub. This app cannot grant itself repository access. Never enter a password, PAT, client secret, or runner token.")
             .setView(input)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Continue") { _, _ ->
@@ -437,7 +520,7 @@ class MainActivity : Activity() {
     }
 
     private fun startDeviceFlow(slot: Int, clientId: String) {
-        githubStatusLabel?.text = "GitHub connection: Requesting device authorization…"
+        githubStatusLabel?.apply { text = "🟡 CONNECTING • Requesting GitHub authorization…"; setTextColor(0xFFFFD166.toInt()) }
         githubExecutor.execute {
             try {
                 val client = GitHubDeviceFlowClient(clientId)
@@ -453,13 +536,13 @@ class MainActivity : Activity() {
                         }
                         .setNeutralButton("I've opened it") { _, _ -> pollDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot) }
                         .setNegativeButton("Cancel") { _, _ ->
-                            githubStatusLabel?.text = "GitHub connection: Authorization cancelled"
+                            githubStatusLabel?.apply { text = "🔴 DISCONNECTED • Authorization cancelled"; setTextColor(0xFFFF6B6B.toInt()) }
                             recordActivity("github_device_authorization_cancelled", "CANCELLED", slot)
                         }.show()
                 }
             } catch (_: Exception) {
                 runOnUiThread {
-                    githubStatusLabel?.text = "GitHub connection: Authorization request failed"
+                    githubStatusLabel?.apply { text = "🔴 ERROR • Authorization request failed"; setTextColor(0xFFFF6B6B.toInt()) }
                     Toast.makeText(this, "Check Client ID, Device Flow settings, and network.", Toast.LENGTH_LONG).show()
                     recordActivity("github_device_authorization_failed", "FAILED", slot)
                     logAudit("github_device_authorization_failed")
@@ -469,7 +552,7 @@ class MainActivity : Activity() {
     }
 
     private fun pollDeviceFlow(client: GitHubDeviceFlowClient, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int) {
-        githubStatusLabel?.text = "GitHub connection: Waiting for browser approval…"
+        runOnUiThread { if (selectedAccount == slot) githubStatusLabel?.apply { text = "🟡 CONNECTING • Waiting for browser approval…"; setTextColor(0xFFFFD166.toInt()) } }
         githubExecutor.execute {
             val deadline = System.currentTimeMillis() + expiresIn.coerceAtLeast(1L) * 1000L
             var interval = initialInterval.coerceAtLeast(1L)
@@ -486,15 +569,15 @@ class MainActivity : Activity() {
                             githubTokensBySlot[slot] = token
                             githubReposBySlot[slot] = repos
                             githubLoginsBySlot[slot] = identity.login
-                            githubAccountSpinner?.adapter = neonAdapter(accountLabels())
-                            githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
+                            updateActiveAccountDisplay()
                             if (selectedAccount == slot) {
-                                githubStatusLabel?.text = "GitHub connection: " + identity.login + " • read-only"
+                                updateGitHubConnectionLabel()
                                 updateRepositorySpinner()
                             }
                             recordActivity("github_account_connected_readonly", "SUCCESS", slot)
                             logAudit("github_account_connected_readonly")
-                            Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Token remains memory-only.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Fetching workflow and runner metadata…", Toast.LENGTH_LONG).show()
+                            if (selectedAccount == slot) refreshGitHubMetadata()
                         }
                         return@execute
                     }
@@ -513,7 +596,7 @@ class MainActivity : Activity() {
             } catch (_: Exception) {
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
-                    if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Not connected"
+                    if (selectedAccount == slot) githubStatusLabel?.apply { text = "🔴 DISCONNECTED • Authorization failed"; setTextColor(0xFFFF6B6B.toInt()) }
                     Toast.makeText(this, "Authorization failed or timed out. Verify app configuration and retry.", Toast.LENGTH_LONG).show()
                     recordActivity("github_device_authorization_failed", "FAILED", slot)
                     logAudit("github_device_authorization_failed")
@@ -530,13 +613,15 @@ class MainActivity : Activity() {
             return
         }
         val clientId = githubClientIds[slot] ?: return
-        githubStatusLabel?.text = "GitHub connection: Refreshing read-only metadata…"
+        githubStatusLabel?.apply { text = "🟡 CONNECTING • Refreshing GitHub metadata…"; setTextColor(0xFFFFD166.toInt()) }
         githubExecutor.execute {
             try {
                 val client = GitHubDeviceFlowClient(clientId)
                 val identity = client.identity(token)
                 val repos = client.repositories(token)
+                // Automatically load metadata for the first repository when no prior choice exists.
                 val selectedPath = selectedRepositoryBySlot[slot]
+                    ?: repos.firstOrNull()?.let { it.owner + "/" + it.name }
                 val selectedRepo = repos.firstOrNull { it.owner + "/" + it.name == selectedPath }
                 val runs = if (selectedRepo == null) emptyList() else client.workflowRuns(token, selectedRepo.owner, selectedRepo.name)
                 // Runner listing can require stronger repository permissions than workflow-run metadata.
@@ -548,24 +633,34 @@ class MainActivity : Activity() {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     githubReposBySlot[slot] = repos
                     githubLoginsBySlot[slot] = identity.login
-                    githubAccountSpinner?.adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, accountLabels())
-                    githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
+                    if (selectedRepo != null) selectedRepositoryBySlot[slot] = selectedRepo.owner + "/" + selectedRepo.name
+                    updateActiveAccountDisplay()
                     if (selectedAccount == slot) {
                         updateRepositorySpinner()
-                        githubStatusLabel?.text = if (selectedRepo == null)
-                            "GitHub: " + identity.login + " • " + repos.size + " repos • select a repository to load its metadata"
-                        else
-                            "GitHub: " + identity.login + " • " + selectedRepo.owner + "/" + selectedRepo.name +
-                                " • " + runs.size + " workflow runs / " +
-                                if (runnerResult?.isSuccess == true) runners.size.toString() + " runners"
-                                else "runner metadata unavailable (permissions or endpoint)"
+                        githubStatusLabel?.apply {
+                            text = if (selectedRepo == null)
+                                "🟢 CONNECTED • " + identity.login + " • " + repos.size + " repos • select one for metadata"
+                            else
+                                "🟢 CONNECTED • " + identity.login + " • " + selectedRepo.owner + "/" + selectedRepo.name +
+                                    " • " + runs.size + " workflow runs / " +
+                                    if (runnerResult?.isSuccess == true) runners.size.toString() + " runners"
+                                    else "runner metadata unavailable (permissions or endpoint)"
+                            setTextColor(0xFF4DFF88.toInt())
+                        }
                     }
                     recordActivity("github_readonly_metadata_refreshed", "SUCCESS", slot)
                     logAudit("github_readonly_metadata_refreshed")
+                    if (selectedAccount == slot) {
+                        val runnerSummary = if (runnerResult?.isSuccess == true) runners.size.toString() + " runners"
+                            else "runner details unavailable"
+                        Toast.makeText(this, "Refreshed " + repos.size + " repositories" +
+                            if (selectedRepo != null) ", " + runs.size + " workflow runs, " + runnerSummary else "",
+                            Toast.LENGTH_LONG).show()
+                    }
                 }
             } catch (_: Exception) {
                 runOnUiThread {
-                    if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Refresh failed"
+                    if (selectedAccount == slot) githubStatusLabel?.apply { text = "🔴 ERROR • Metadata refresh failed"; setTextColor(0xFFFF6B6B.toInt()) }
                     Toast.makeText(this, "Metadata refresh failed. Check token permissions and network.", Toast.LENGTH_LONG).show()
                     recordActivity("github_readonly_metadata_refresh_failed", "FAILED", slot)
                     logAudit("github_readonly_metadata_refresh_failed")
@@ -651,19 +746,31 @@ class MainActivity : Activity() {
     private fun addPolicySwitch(parent: LinearLayout, label: String, key: String) {
         parent.addView(Switch(this).apply {
             text = label
+            // The dashboard uses a dark panel; explicitly set high-contrast text so these
+            // three policy rows remain readable above the Minimum battery selector.
+            setTextColor(ink)
+            textSize = 14f
+            setPadding(dp(2), dp(7), dp(2), dp(7))
+            minimumHeight = dp(48)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                thumbTintList = android.content.res.ColorStateList.valueOf(accent)
+                trackTintList = android.content.res.ColorStateList.valueOf(0xFF3A627D.toInt())
+            }
             isChecked = policyPreferences.getBoolean(key, false)
             setOnCheckedChangeListener { _, checked ->
                 policyPreferences.edit().putBoolean(key, checked).apply()
                 recordActivity("local_policy_" + key + "_" + if (checked) "enabled" else "disabled")
                 logAudit("local_policy_" + key + "_" + if (checked) "enabled" else "disabled")
             }
-        }, marginParams(bottom = 2))
+        }, marginParams(bottom = 5))
     }
 
     private fun addChoice(parent: LinearLayout, title: String, key: String, labels: Array<String>, values: Array<Int>, defaultValue: Int) {
         parent.addView(text(title, 14f, ink, true).apply { setPadding(0, dp(7), 0, dp(2)) })
         val spinner = Spinner(this)
-        spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+        spinner.adapter = neonAdapter(labels.toList())
+        spinner.backgroundTintList = android.content.res.ColorStateList.valueOf(accent)
+        spinner.setBackgroundColor(panel)
         val saved = policyPreferences.getInt(key, defaultValue)
         spinner.setSelection(values.indexOf(saved).takeIf { it >= 0 } ?: 0)
         spinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
@@ -714,9 +821,15 @@ class MainActivity : Activity() {
 
     private fun showAuditLog() {
         val entries = auditPreferences.getString("entries", "") ?: ""
+        val displayText = if (entries.isBlank()) "No local security/admin events recorded yet." else entries
         AlertDialog.Builder(this).setTitle("Local Security Audit Log")
-            .setMessage(if (entries.isBlank()) "No local security/admin events recorded yet." else entries)
+            .setMessage(displayText)
             .setPositiveButton("Close", null)
+            .setNegativeButton("Copy log") { _, _ ->
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(ClipData.newPlainText("Local Security Audit Log", displayText))
+                Toast.makeText(this@MainActivity, "Audit log copied to clipboard.", Toast.LENGTH_SHORT).show()
+            }
             .setNeutralButton("Clear log…") { _, _ ->
                 AlertDialog.Builder(this@MainActivity)
                     .setTitle("Clear Security Audit Log?")
@@ -907,8 +1020,11 @@ class MainActivity : Activity() {
             "Internal storage free: " + formatBytes(dataStats.availableBytes) + " / " + formatBytes(dataStats.totalBytes) + "\n" +
             "System-reported available RAM: " + formatBytes(memory.availMem) + " / " + formatBytes(memory.totalMem) + "\n" +
             "Battery: " + (if (percent < 0) "Unavailable" else percent.toString() + "%") + " • " + (if (charging) "Charging" else "Not charging") + "\n" +
-            "GitHub connection: Not configured\n" +
-            "Runner registration: Not configured\n" +
+            "GitHub connection: " + (if (githubTokensBySlot.containsKey(selectedAccount) && githubLoginsBySlot[selectedAccount] != null)
+                "Connected read-only as " + githubLoginsBySlot[selectedAccount] + " (Account " + selectedAccount + ")"
+            else "Not connected in this app session (Account " + selectedAccount + ")") + "\n" +
+            "Repositories loaded: " + githubReposBySlot[selectedAccount].orEmpty().size + "\n" +
+            "Runner registration: Not configured (control bridge not implemented)\n" +
             "Repository/job adapter: Not implemented\n" +
             "FM Commerce PHP Lint result: " + (preferences.getString("php_lint_status", "UNVERIFIED") ?: "UNVERIFIED")
     }
