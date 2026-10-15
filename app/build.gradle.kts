@@ -16,6 +16,7 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "GITHUB_APP_CLIENT_ID", "\"${configuredGitHubClientId.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
     }
     buildTypes {
         release { isMinifyEnabled = false }
