@@ -466,7 +466,7 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this)
             .setTitle("GitHub App setup required")
-            .setMessage("This build has no GitHub App Client ID configured. Set GITHUB_APP_CLIENT_ID in the build environment. For local developer testing only, you may enter a public Client ID here. Never enter a password, PAT, client secret, or runner token.")
+            .setMessage("This build has no GitHub App Client ID configured. Set GITHUB_APP_CLIENT_ID in the build environment. For local developer testing only, enter a public Client ID. Authorization requests repository access so this account can list private repositories it is permitted to access. Never enter a password, PAT, client secret, or runner token.")
             .setView(input)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Continue") { _, _ ->
@@ -533,7 +533,7 @@ class MainActivity : Activity() {
                             githubAccountSpinner?.adapter = neonAdapter(accountLabels())
                             githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
                             if (selectedAccount == slot) {
-                                githubStatusLabel?.text = "GitHub connection: " + identity.login + " • read-only"
+                                updateGitHubConnectionLabel()
                                 updateRepositorySpinner()
                             }
                             recordActivity("github_account_connected_readonly", "SUCCESS", slot)
@@ -596,13 +596,16 @@ class MainActivity : Activity() {
                     githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
                     if (selectedAccount == slot) {
                         updateRepositorySpinner()
-                        githubStatusLabel?.text = if (selectedRepo == null)
-                            "GitHub: " + identity.login + " • " + repos.size + " repos • select a repository to load its metadata"
-                        else
-                            "GitHub: " + identity.login + " • " + selectedRepo.owner + "/" + selectedRepo.name +
-                                " • " + runs.size + " workflow runs / " +
-                                if (runnerResult?.isSuccess == true) runners.size.toString() + " runners"
-                                else "runner metadata unavailable (permissions or endpoint)"
+                        githubStatusLabel?.apply {
+                            text = if (selectedRepo == null)
+                                "🟢 CONNECTED • " + identity.login + " • " + repos.size + " repos • select one for metadata"
+                            else
+                                "🟢 CONNECTED • " + identity.login + " • " + selectedRepo.owner + "/" + selectedRepo.name +
+                                    " • " + runs.size + " workflow runs / " +
+                                    if (runnerResult?.isSuccess == true) runners.size.toString() + " runners"
+                                    else "runner metadata unavailable (permissions or endpoint)"
+                            setTextColor(0xFF4DFF88.toInt())
+                        }
                     }
                     recordActivity("github_readonly_metadata_refreshed", "SUCCESS", slot)
                     logAudit("github_readonly_metadata_refreshed")
