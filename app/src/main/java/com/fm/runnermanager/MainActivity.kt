@@ -874,15 +874,16 @@ class MainActivity : Activity() {
     private fun addPolicySwitch(parent: LinearLayout, label: String, key: String) {
         parent.addView(Switch(this).apply {
             text = label
-            // The dashboard uses a dark panel; explicitly set high-contrast text so these
-            // three policy rows remain readable above the Minimum battery selector.
-            setTextColor(ink)
+            // Neon cyan styling for the three policy rows directly above Minimum battery.
+            val neonCyan = 0xFF62FFF0.toInt()
+            setTextColor(neonCyan)
             textSize = 14f
+            setShadowLayer(dp(5).toFloat(), 0f, 0f, 0x8845D7E8.toInt())
             setPadding(dp(2), dp(7), dp(2), dp(7))
             minimumHeight = dp(48)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                thumbTintList = android.content.res.ColorStateList.valueOf(accent)
-                trackTintList = android.content.res.ColorStateList.valueOf(0xFF3A627D.toInt())
+                thumbTintList = android.content.res.ColorStateList.valueOf(neonCyan)
+                trackTintList = android.content.res.ColorStateList.valueOf(0xFF256B78.toInt())
             }
             isChecked = policyPreferences.getBoolean(key, false)
             setOnCheckedChangeListener { _, checked ->
