@@ -574,7 +574,8 @@ class MainActivity : Activity() {
                             }
                             recordActivity("github_account_connected_readonly", "SUCCESS", slot)
                             logAudit("github_account_connected_readonly")
-                            Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Token remains memory-only.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Fetching workflow and runner metadata…", Toast.LENGTH_LONG).show()
+                            if (selectedAccount == slot) refreshGitHubMetadata()
                         }
                         return@execute
                     }
@@ -616,7 +617,9 @@ class MainActivity : Activity() {
                 val client = GitHubDeviceFlowClient(clientId)
                 val identity = client.identity(token)
                 val repos = client.repositories(token)
+                // Automatically load metadata for the first repository when no prior choice exists.
                 val selectedPath = selectedRepositoryBySlot[slot]
+                    ?: repos.firstOrNull()?.let { it.owner + "/" + it.name }
                 val selectedRepo = repos.firstOrNull { it.owner + "/" + it.name == selectedPath }
                 val runs = if (selectedRepo == null) emptyList() else client.workflowRuns(token, selectedRepo.owner, selectedRepo.name)
                 // Runner listing can require stronger repository permissions than workflow-run metadata.
@@ -628,6 +631,7 @@ class MainActivity : Activity() {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     githubReposBySlot[slot] = repos
                     githubLoginsBySlot[slot] = identity.login
+                    if (selectedRepo != null) selectedRepositoryBySlot[slot] = selectedRepo.owner + "/" + selectedRepo.name
                     updateActiveAccountDisplay()
                     if (selectedAccount == slot) {
                         updateRepositorySpinner()
@@ -644,6 +648,13 @@ class MainActivity : Activity() {
                     }
                     recordActivity("github_readonly_metadata_refreshed", "SUCCESS", slot)
                     logAudit("github_readonly_metadata_refreshed")
+                    if (selectedAccount == slot) {
+                        val runnerSummary = if (runnerResult?.isSuccess == true) runners.size.toString() + " runners"
+                            else "runner details unavailable"
+                        Toast.makeText(this, "Refreshed " + repos.size + " repositories" +
+                            if (selectedRepo != null) ", " + runs.size + " workflow runs, " + runnerSummary else "",
+                            Toast.LENGTH_LONG).show()
+                    }
                 }
             } catch (_: Exception) {
                 runOnUiThread {
