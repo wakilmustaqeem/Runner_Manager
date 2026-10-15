@@ -299,14 +299,14 @@ class MainActivity : Activity() {
     }
 
     /** Consistent high-contrast neon text for every spinner and dropdown in the app. */
-    private fun neonAdapter(items: List<String>): ArrayAdapter<String> =
+    private fun neonAdapter(items: List<String>, itemTextSizeSp: Float = 14f): ArrayAdapter<String> =
         object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
             init { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
 
             private fun styleItem(view: View): View {
                 (view as? TextView)?.apply {
                     setTextColor(accent)
-                    textSize = 14f
+                    textSize = itemTextSizeSp
                     setPadding(dp(12), dp(10), dp(12), dp(10))
                     setBackgroundColor(panel)
                 }
@@ -462,7 +462,8 @@ class MainActivity : Activity() {
         val repos = githubReposBySlot[selectedAccount].orEmpty()
         val labels = if (repos.isEmpty()) listOf("Repositories not loaded — connect this account first")
             else repos.map { it.owner + "/" + it.name + if (it.isPrivate) " • private" else " • public" }
-        spinner.adapter = neonAdapter(labels)
+        // Repository paths can be long (owner/repo); use compact text so the full path fits.
+        spinner.adapter = neonAdapter(labels, 11f)
         spinner.isEnabled = repos.isNotEmpty()
         val selected = selectedRepositoryBySlot[selectedAccount]
         val index = repos.indexOfFirst { it.owner + "/" + it.name == selected }
