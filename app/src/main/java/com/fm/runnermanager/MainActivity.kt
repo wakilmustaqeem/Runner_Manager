@@ -466,7 +466,7 @@ class MainActivity : Activity() {
         }
         AlertDialog.Builder(this)
             .setTitle("GitHub App setup required")
-            .setMessage("This build has no GitHub App Client ID configured. Set GITHUB_APP_CLIENT_ID in the build environment. For local developer testing only, enter a public Client ID. Authorization requests repository access so this account can list private repositories it is permitted to access. Never enter a password, PAT, client secret, or runner token.")
+            .setMessage("This build has no GitHub Client ID configured. Set GITHUB_APP_CLIENT_ID in the build environment. For local developer testing only, enter the registered public Client ID. OAuth Apps need the repo scope for private repositories; GitHub Apps need Metadata: read and access to the intended repositories configured in GitHub. This app cannot grant itself repository access. Never enter a password, PAT, client secret, or runner token.")
             .setView(input)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Continue") { _, _ ->
