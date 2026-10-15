@@ -61,7 +61,6 @@ class MainActivity : Activity() {
     private var lastCpu = readCpuCounters()
     private var selectedAccount = 1
     private var repoSpinner: Spinner? = null
-    private var githubAccountSpinner: Spinner? = null
     private var activeAccountLabel: TextView? = null
     private val githubExecutor = Executors.newSingleThreadExecutor()
     private val githubTokensBySlot = mutableMapOf<Int, String>()
@@ -80,6 +79,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        selectedAccount = accountIds().first()
         renderDashboard()
         refreshMetrics()
         handler.postDelayed(refreshTask, 3000L)
@@ -155,10 +155,11 @@ class MainActivity : Activity() {
             setPadding(dp(10), dp(7), dp(6), dp(7))
             background = roundedPanel(panel, 12)
         }
-        activeAccountLabel = text(activeAccountDisplay(), 14f, 0xFF4DFF88.toInt(), true).apply {
+        val activeLabel = text(activeAccountDisplay(), 14f, 0xFF4DFF88.toInt(), true).apply {
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
-        activeRow.addView(activeAccountLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        activeAccountLabel = activeLabel
+        activeRow.addView(activeLabel, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         activeRow.addView(Button(this).apply {
             text = "Switch"
             setOnClickListener { showAccountSwitcher() }
