@@ -48,6 +48,8 @@ class MainActivity : Activity() {
     private val auditPreferences by lazy { getSharedPreferences("local_audit_metadata", MODE_PRIVATE) }
     private val historyPreferences by lazy { getSharedPreferences("local_activity_history", MODE_PRIVATE) }
     private val policyPreferences by lazy { getSharedPreferences("local_runner_policy", MODE_PRIVATE) }
+    private val sessionMetadataPreferences by lazy { getSharedPreferences("github_session_metadata", MODE_PRIVATE) }
+    private val tokenVault by lazy { EncryptedGitHubTokenVault(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var cpuLabel: TextView? = null
     private var ramLabel: TextView? = null
@@ -83,6 +85,7 @@ class MainActivity : Activity() {
         renderDashboard()
         refreshMetrics()
         handler.postDelayed(refreshTask, 3000L)
+        restorePersistedGitHubSessions()
     }
 
     override fun onDestroy() {
@@ -408,6 +411,8 @@ class MainActivity : Activity() {
             return
         }
         githubTokensBySlot.remove(slot)
+        tokenVault.remove(slot)
+        sessionMetadataPreferences.edit().remove("client_id_slot_" + slot).apply()
         githubReposBySlot.remove(slot)
         githubClientIds.remove(slot)
         githubLoginsBySlot.remove(slot)
@@ -443,6 +448,8 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Remove") { _, _ ->
                 githubTokensBySlot.remove(id)
+                tokenVault.remove(id)
+                sessionMetadataPreferences.edit().remove("client_id_slot_" + id).apply()
                 githubReposBySlot.remove(id)
                 githubClientIds.remove(id)
                 githubLoginsBySlot.remove(id)
@@ -483,6 +490,70 @@ class MainActivity : Activity() {
             } else {
                 text = "🔴 DISCONNECTED • Connect GitHub to begin"
                 setTextColor(0xFFFF6B6B.toInt())
+            }
+        }
+    }
+
+    /**
+     * Restore saved sessions on launch. GitHub is always consulted before showing CONNECTED.
+     * Transient failures keep encrypted credentials and never issue runner stop/start commands.
+     */
+    private fun restorePersistedGitHubSessions() {
+        for (slot in accountIds()) {
+            if (!tokenVault.contains(slot)) continue
+            val token = tokenVault.load(slot)
+            if (token.isNullOrBlank()) {
+                if (selectedAccount == slot) githubStatusLabel?.apply {
+                    text = "🟠 SAVED SESSION • Cannot decrypt; reconnect required"
+                    setTextColor(0xFFFFB454.toInt())
+                }
+                recordActivity("github_session_restore_unavailable", "FAILED", slot)
+                logAudit("github_session_restore_unavailable")
+                continue
+            }
+            githubTokensBySlot[slot] = token
+            val clientId = sessionMetadataPreferences.getString(
+                "client_id_slot_" + slot, BuildConfig.GITHUB_APP_CLIENT_ID.trim()
+            ).orEmpty()
+            if (clientId.isNotBlank()) githubClientIds[slot] = clientId
+            if (selectedAccount == slot) githubStatusLabel?.apply {
+                text = "🟡 RECONNECTING • Verifying saved GitHub session…"
+                setTextColor(0xFFFFD166.toInt())
+            }
+            githubExecutor.execute {
+                try {
+                    require(clientId.isNotBlank()) { "GitHub Client ID unavailable" }
+                    val client = GitHubDeviceFlowClient(clientId)
+                    val identity = client.identity(token)
+                    val repos = client.repositories(token)
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        githubTokensBySlot[slot] = token
+                        githubLoginsBySlot[slot] = identity.login
+                        githubReposBySlot[slot] = repos
+                        if (selectedAccount == slot) {
+                            updateGitHubConnectionLabel()
+                            updateRepositorySpinner()
+                            githubStatusLabel?.apply {
+                                text = "🟢 CONNECTED • " + identity.login + " • restored session • read-only"
+                                setTextColor(0xFF4DFF88.toInt())
+                            }
+                        }
+                        updateActiveAccountDisplay()
+                        recordActivity("github_session_auto_reconnected", "SUCCESS", slot)
+                        logAudit("github_session_auto_reconnected")
+                    }
+                } catch (_: Exception) {
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        if (selectedAccount == slot) githubStatusLabel?.apply {
+                            text = "🟠 RECONNECTING • Verification failed; saved session kept"
+                            setTextColor(0xFFFFB454.toInt())
+                        }
+                        recordActivity("github_session_auto_reconnect_failed_token_preserved", "FAILED", slot)
+                        logAudit("github_session_auto_reconnect_failed_token_preserved")
+                    }
+                }
             }
         }
     }
@@ -566,6 +637,13 @@ class MainActivity : Activity() {
                         val repos = client.repositories(token)
                         runOnUiThread {
                             if (isFinishing || isDestroyed) return@runOnUiThread
+                            try {
+                                tokenVault.save(slot, token)
+                                sessionMetadataPreferences.edit().putString("client_id_slot_" + slot, clientId).apply()
+                            } catch (_: Exception) {
+                                recordActivity("github_session_secure_save_failed", "FAILED", slot)
+                                logAudit("github_session_secure_save_failed")
+                            }
                             githubTokensBySlot[slot] = token
                             githubReposBySlot[slot] = repos
                             githubLoginsBySlot[slot] = identity.login
