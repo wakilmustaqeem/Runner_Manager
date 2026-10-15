@@ -11,6 +11,7 @@ on:
       - feat/github-readonly-connection-v1
       - fix/promote-runner-manager-to-main-2026-10-15
       - fix/neon-power-policy-labels-2026-10-15
+      - fix/github-status-private-repos-2026-10-15
 
 permissions:
   contents: read
