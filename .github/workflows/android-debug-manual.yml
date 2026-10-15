@@ -159,10 +159,13 @@ jobs:
 
       - name: Build debug APK and run available unit tests
         shell: bash
+        env:
+          # Public GitHub App Client ID; configure as a repository Actions variable.
+          GITHUB_APP_CLIENT_ID: ${{ vars.GITHUB_APP_CLIENT_ID }}
         run: |
           set -euo pipefail
           sdk_aapt2="$ANDROID_HOME/build-tools/35.0.1/aapt2"
-          gradle --no-daemon "-Pandroid.aapt2FromMavenOverride=$sdk_aapt2" assembleDebug testDebugUnitTest
+          gradle --no-daemon "-PgithubAppClientId=${GITHUB_APP_CLIENT_ID:-}" "-Pandroid.aapt2FromMavenOverride=$sdk_aapt2" assembleDebug testDebugUnitTest
 
       - name: Upload debug APK (7-day retention)
         uses: actions/upload-artifact@v4
