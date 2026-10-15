@@ -384,20 +384,33 @@ class MainActivity : Activity() {
 
     private fun beginGitHubConnection() {
         val slot = selectedAccount
+        val configuredClientId = BuildConfig.GITHUB_APP_CLIENT_ID.trim()
+        if (configuredClientId.isNotBlank()) {
+            // Public app builds carry their own public Client ID; users never enter it.
+            githubClientIds[slot] = configuredClientId
+            startDeviceFlow(slot, configuredClientId)
+            return
+        }
+
+        // Developer fallback only: production/public builds should configure the ID at build time.
         val input = EditText(this).apply {
-            hint = "GitHub App Client ID (not a secret)"
+            hint = "Client ID (developer setup only)"
             inputType = InputType.TYPE_CLASS_TEXT
             setText(githubClientIds[slot].orEmpty())
         }
         AlertDialog.Builder(this)
-            .setTitle("Connect GitHub account " + slot)
-            .setMessage("Enter the Client ID of your registered GitHub App with Device Flow enabled. Do not enter a PAT, client secret, or runner token.")
+            .setTitle("GitHub App setup required")
+            .setMessage("This build has no GitHub App Client ID configured. Set GITHUB_APP_CLIENT_ID in the build environment. For local developer testing only, you may enter a public Client ID here. Never enter a password, PAT, client secret, or runner token.")
             .setView(input)
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Continue") { _, _ ->
                 val clientId = input.text.toString().trim()
-                if (clientId.isBlank()) Toast.makeText(this, "Client ID is required.", Toast.LENGTH_LONG).show()
-                else { githubClientIds[slot] = clientId; startDeviceFlow(slot, clientId) }
+                if (clientId.isBlank()) {
+                    Toast.makeText(this, "Configure the GitHub App Client ID in this build.", Toast.LENGTH_LONG).show()
+                } else {
+                    githubClientIds[slot] = clientId
+                    startDeviceFlow(slot, clientId)
+                }
             }.show()
     }
 
