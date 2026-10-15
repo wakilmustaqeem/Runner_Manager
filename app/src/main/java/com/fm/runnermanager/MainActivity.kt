@@ -745,13 +745,23 @@ class MainActivity : Activity() {
     private fun addPolicySwitch(parent: LinearLayout, label: String, key: String) {
         parent.addView(Switch(this).apply {
             text = label
+            // The dashboard uses a dark panel; explicitly set high-contrast text so these
+            // three policy rows remain readable above the Minimum battery selector.
+            setTextColor(ink)
+            textSize = 14f
+            setPadding(dp(2), dp(7), dp(2), dp(7))
+            minimumHeight = dp(48)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                thumbTintList = android.content.res.ColorStateList.valueOf(accent)
+                trackTintList = android.content.res.ColorStateList.valueOf(0xFF3A627D.toInt())
+            }
             isChecked = policyPreferences.getBoolean(key, false)
             setOnCheckedChangeListener { _, checked ->
                 policyPreferences.edit().putBoolean(key, checked).apply()
                 recordActivity("local_policy_" + key + "_" + if (checked) "enabled" else "disabled")
                 logAudit("local_policy_" + key + "_" + if (checked) "enabled" else "disabled")
             }
-        }, marginParams(bottom = 2))
+        }, marginParams(bottom = 5))
     }
 
     private fun addChoice(parent: LinearLayout, title: String, key: String, labels: Array<String>, values: Array<Int>, defaultValue: Int) {
