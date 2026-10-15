@@ -15,18 +15,24 @@ internal class EncryptedGitHubTokenVault(context: Context) {
 
     fun contains(slot: Int): Boolean = prefs.contains("slot_$slot")
 
-    fun save(slot: Int, token: String) {
-        require(slot > 0 && token.isNotBlank())
+    fun save(slot: Int, token: String) = saveValue("slot_$slot", token)
+    fun load(slot: Int): String? = loadValue("slot_$slot")
+
+    fun saveRefreshToken(slot: Int, token: String) = saveValue("refresh_slot_$slot", token)
+    fun loadRefreshToken(slot: Int): String? = loadValue("refresh_slot_$slot")
+
+    private fun saveValue(storageKey: String, token: String) {
+        require(token.isNotBlank())
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
         val cipherText = cipher.doFinal(token.toByteArray(Charsets.UTF_8))
         val value = Base64.encodeToString(cipher.iv, Base64.NO_WRAP) + ":" +
             Base64.encodeToString(cipherText, Base64.NO_WRAP)
-        check(prefs.edit().putString("slot_$slot", value).commit())
+        check(prefs.edit().putString(storageKey, value).commit())
     }
 
-    fun load(slot: Int): String? {
-        val value = prefs.getString("slot_$slot", null) ?: return null
+    private fun loadValue(storageKey: String): String? {
+        val value = prefs.getString(storageKey, null) ?: return null
         return try {
             val parts = value.split(":", limit = 2)
             require(parts.size == 2)
@@ -39,7 +45,7 @@ internal class EncryptedGitHubTokenVault(context: Context) {
     }
 
     fun remove(slot: Int) {
-        prefs.edit().remove("slot_$slot").commit()
+        prefs.edit().remove("slot_$slot").remove("refresh_slot_$slot").commit()
     }
 
     private fun key(): java.security.Key {
