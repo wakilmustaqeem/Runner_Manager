@@ -1013,10 +1013,10 @@ class MainActivity : Activity() {
             "Internal storage free: " + formatBytes(dataStats.availableBytes) + " / " + formatBytes(dataStats.totalBytes) + "\n" +
             "System-reported available RAM: " + formatBytes(memory.availMem) + " / " + formatBytes(memory.totalMem) + "\n" +
             "Battery: " + (if (percent < 0) "Unavailable" else percent.toString() + "%") + " • " + (if (charging) "Charging" else "Not charging") + "\n" +
-            "GitHub connection: " + if (githubTokensBySlot.containsKey(selectedAccount) && githubLoginsBySlot[selectedAccount] != null)
+            "GitHub connection: " + (if (githubTokensBySlot.containsKey(selectedAccount) && githubLoginsBySlot[selectedAccount] != null)
                 "Connected read-only as " + githubLoginsBySlot[selectedAccount] + " (Account " + selectedAccount + ")"
-            else "Not connected in this app session (Account " + selectedAccount + ")"
-            + "\\nRepositories loaded: " + githubReposBySlot[selectedAccount].orEmpty().size + "\\n" +
+            else "Not connected in this app session (Account " + selectedAccount + ")") + "\n" +
+            "Repositories loaded: " + githubReposBySlot[selectedAccount].orEmpty().size + "\n" +
             "Runner registration: Not configured (control bridge not implemented)\n" +
             "Repository/job adapter: Not implemented\n" +
             "FM Commerce PHP Lint result: " + (preferences.getString("php_lint_status", "UNVERIFIED") ?: "UNVERIFIED")
