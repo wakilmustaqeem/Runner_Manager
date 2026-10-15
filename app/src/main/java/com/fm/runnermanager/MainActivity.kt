@@ -170,7 +170,8 @@ class MainActivity : Activity() {
             setOnClickListener { addAccount() }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
         accountActions.addView(Button(this).apply {
-            text = "Disconnect / remove"
+            text = "Remove account slot"
+            contentDescription = "danger-action"
             setOnClickListener { removeSelectedAccount() }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
         root.addView(accountActions, marginParams(bottom = 8))
@@ -206,12 +207,17 @@ class MainActivity : Activity() {
             setPadding(dp(13), dp(12), dp(13), dp(12))
             background = roundedPanel(panel, 18)
         }
-        githubStatusLabel = text("GitHub connection: Not configured", 14f, ink, true)
+        githubStatusLabel = text("🔴 DISCONNECTED • Connect GitHub to begin", 14f, 0xFFFF6B6B.toInt(), true)
         runnerPanel.addView(githubStatusLabel!!)
-        runnerPanel.addView(text("Runner status: Read-only metadata only; Start/Stop disabled", 13f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
+        runnerPanel.addView(text("Runner control: not connected to DroidRunner service yet; Start/Stop will not launch or stop the runner.", 13f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
         runnerPanel.addView(Button(this).apply {
-            text = "Connect GitHub (read-only)"
+            text = "🟢 Connect GitHub"
             setOnClickListener { beginGitHubConnection() }
+        }, marginParams(bottom = 6))
+        runnerPanel.addView(Button(this).apply {
+            text = "🔴 Disconnect GitHub"
+            contentDescription = "danger-action"
+            setOnClickListener { disconnectSelectedAccount() }
         }, marginParams(bottom = 6))
         runnerPanel.addView(Button(this).apply {
             text = "Refresh repositories / runner metadata"
@@ -233,13 +239,13 @@ class MainActivity : Activity() {
         val controlRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         controlRow.addView(Button(this).apply {
             text = "Start runner"
-            isEnabled = false
-            contentDescription = "Disabled until an authorized runner control adapter exists"
+            contentDescription = "runner-control-unavailable"
+            setOnClickListener { showRunnerControlUnavailable("start") }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(5) })
         controlRow.addView(Button(this).apply {
             text = "Stop runner"
-            isEnabled = false
-            contentDescription = "Disabled until an authorized runner control adapter exists"
+            contentDescription = "runner-control-unavailable"
+            setOnClickListener { showRunnerControlUnavailable("stop") }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(5) })
         runnerPanel.addView(controlRow)
         root.addView(runnerPanel, marginParams(bottom = 12))
@@ -281,8 +287,9 @@ class MainActivity : Activity() {
     private fun styleTree(view: View) {
         when (view) {
             is Button -> {
-                view.backgroundTintList = android.content.res.ColorStateList.valueOf(accent)
-                view.setTextColor(0xFF071426.toInt())
+                val danger = view.contentDescription == "danger-action"
+                view.backgroundTintList = android.content.res.ColorStateList.valueOf(if (danger) 0xFFFF4D5A.toInt() else accent)
+                view.setTextColor(if (danger) 0xFFFFFFFF.toInt() else 0xFF071426.toInt())
                 view.textSize = 13f
                 view.isAllCaps = false
             }
@@ -354,6 +361,37 @@ class MainActivity : Activity() {
         Toast.makeText(this, "Account entry added. Connect it to authorize GitHub.", Toast.LENGTH_SHORT).show()
     }
 
+    private fun disconnectSelectedAccount() {
+        val slot = selectedAccount
+        if (!githubTokensBySlot.containsKey(slot)) {
+            Toast.makeText(this, "This account slot is already disconnected.", Toast.LENGTH_SHORT).show()
+            updateGitHubConnectionLabel()
+            return
+        }
+        githubTokensBySlot.remove(slot)
+        githubReposBySlot.remove(slot)
+        githubClientIds.remove(slot)
+        githubLoginsBySlot.remove(slot)
+        selectedRepositoryBySlot.remove(slot)
+        updateRepositorySpinner()
+        updateGitHubConnectionLabel()
+        githubAccountSpinner?.adapter = neonAdapter(accountLabels())
+        githubAccountSpinner?.setSelection(accountIds().indexOf(slot).coerceAtLeast(0), false)
+        recordActivity("github_account_disconnected_local_session_cleared", "SUCCESS", slot)
+        logAudit("github_account_disconnected_local_session_cleared")
+        Toast.makeText(this, "Disconnected locally. GitHub authorization was not revoked.", Toast.LENGTH_LONG).show()
+    }
+
+    private fun showRunnerControlUnavailable(action: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Runner " + action + " is not connected")
+            .setMessage("No action was taken. This app currently reads GitHub metadata but has no verified control bridge to the DroidRunner process on this phone. GitHub authorization alone cannot start or stop a local runner. The DroidRunner control interface must be integrated and tested before this button can safely control it.")
+            .setPositiveButton("Close", null)
+            .show()
+        recordActivity("runner_" + action + "_blocked_no_control_bridge", "UNAVAILABLE", selectedAccount)
+        logAudit("runner_" + action + "_blocked_no_control_bridge")
+    }
+
     private fun removeSelectedAccount() {
         val ids = accountIds()
         if (ids.size <= 1) {
@@ -399,9 +437,15 @@ class MainActivity : Activity() {
 
     private fun updateGitHubConnectionLabel() {
         val login = githubLoginsBySlot[selectedAccount]
-        githubStatusLabel?.text = if (githubTokensBySlot.containsKey(selectedAccount) && login != null)
-            "GitHub connection: " + login + " • read-only"
-        else "GitHub connection: Not connected"
+        githubStatusLabel?.apply {
+            if (githubTokensBySlot.containsKey(selectedAccount) && login != null) {
+                text = "🟢 CONNECTED • " + login + " • read-only"
+                setTextColor(0xFF4DFF88.toInt())
+            } else {
+                text = "🔴 DISCONNECTED • Connect GitHub to begin"
+                setTextColor(0xFFFF6B6B.toInt())
+            }
+        }
     }
 
     private fun beginGitHubConnection() {
@@ -437,7 +481,7 @@ class MainActivity : Activity() {
     }
 
     private fun startDeviceFlow(slot: Int, clientId: String) {
-        githubStatusLabel?.text = "GitHub connection: Requesting device authorization…"
+        githubStatusLabel?.apply { text = "🟡 CONNECTING • Requesting GitHub authorization…"; setTextColor(0xFFFFD166.toInt()) }
         githubExecutor.execute {
             try {
                 val client = GitHubDeviceFlowClient(clientId)
@@ -453,13 +497,13 @@ class MainActivity : Activity() {
                         }
                         .setNeutralButton("I've opened it") { _, _ -> pollDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot) }
                         .setNegativeButton("Cancel") { _, _ ->
-                            githubStatusLabel?.text = "GitHub connection: Authorization cancelled"
+                            githubStatusLabel?.apply { text = "🔴 DISCONNECTED • Authorization cancelled"; setTextColor(0xFFFF6B6B.toInt()) }
                             recordActivity("github_device_authorization_cancelled", "CANCELLED", slot)
                         }.show()
                 }
             } catch (_: Exception) {
                 runOnUiThread {
-                    githubStatusLabel?.text = "GitHub connection: Authorization request failed"
+                    githubStatusLabel?.apply { text = "🔴 ERROR • Authorization request failed"; setTextColor(0xFFFF6B6B.toInt()) }
                     Toast.makeText(this, "Check Client ID, Device Flow settings, and network.", Toast.LENGTH_LONG).show()
                     recordActivity("github_device_authorization_failed", "FAILED", slot)
                     logAudit("github_device_authorization_failed")
@@ -469,7 +513,7 @@ class MainActivity : Activity() {
     }
 
     private fun pollDeviceFlow(client: GitHubDeviceFlowClient, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int) {
-        githubStatusLabel?.text = "GitHub connection: Waiting for browser approval…"
+        runOnUiThread { if (selectedAccount == slot) githubStatusLabel?.apply { text = "🟡 CONNECTING • Waiting for browser approval…"; setTextColor(0xFFFFD166.toInt()) } }
         githubExecutor.execute {
             val deadline = System.currentTimeMillis() + expiresIn.coerceAtLeast(1L) * 1000L
             var interval = initialInterval.coerceAtLeast(1L)
@@ -513,7 +557,7 @@ class MainActivity : Activity() {
             } catch (_: Exception) {
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
-                    if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Not connected"
+                    if (selectedAccount == slot) githubStatusLabel?.apply { text = "🔴 DISCONNECTED • Authorization failed"; setTextColor(0xFFFF6B6B.toInt()) }
                     Toast.makeText(this, "Authorization failed or timed out. Verify app configuration and retry.", Toast.LENGTH_LONG).show()
                     recordActivity("github_device_authorization_failed", "FAILED", slot)
                     logAudit("github_device_authorization_failed")
@@ -530,7 +574,7 @@ class MainActivity : Activity() {
             return
         }
         val clientId = githubClientIds[slot] ?: return
-        githubStatusLabel?.text = "GitHub connection: Refreshing read-only metadata…"
+        githubStatusLabel?.apply { text = "🟡 CONNECTING • Refreshing GitHub metadata…"; setTextColor(0xFFFFD166.toInt()) }
         githubExecutor.execute {
             try {
                 val client = GitHubDeviceFlowClient(clientId)
@@ -548,7 +592,7 @@ class MainActivity : Activity() {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     githubReposBySlot[slot] = repos
                     githubLoginsBySlot[slot] = identity.login
-                    githubAccountSpinner?.adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, accountLabels())
+                    githubAccountSpinner?.adapter = neonAdapter(accountLabels())
                     githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
                     if (selectedAccount == slot) {
                         updateRepositorySpinner()
@@ -565,7 +609,7 @@ class MainActivity : Activity() {
                 }
             } catch (_: Exception) {
                 runOnUiThread {
-                    if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Refresh failed"
+                    if (selectedAccount == slot) githubStatusLabel?.apply { text = "🔴 ERROR • Metadata refresh failed"; setTextColor(0xFFFF6B6B.toInt()) }
                     Toast.makeText(this, "Metadata refresh failed. Check token permissions and network.", Toast.LENGTH_LONG).show()
                     recordActivity("github_readonly_metadata_refresh_failed", "FAILED", slot)
                     logAudit("github_readonly_metadata_refresh_failed")
