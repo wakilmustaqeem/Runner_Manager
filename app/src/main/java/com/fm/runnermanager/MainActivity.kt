@@ -149,7 +149,7 @@ class MainActivity : Activity() {
         root.addView(text("Add as many GitHub accounts as you need. Each account authorizes independently; only repositories visible to that account are listed.", 13f, muted, false)
             .apply { setPadding(0, 0, 0, dp(7)) })
         val accountSpinner = Spinner(this)
-        accountSpinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, accountLabels())
+        accountSpinner.adapter = neonAdapter(accountLabels())
         accountSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
@@ -298,6 +298,28 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Consistent high-contrast neon text for every spinner and dropdown in the app. */
+    private fun neonAdapter(items: List<String>): ArrayAdapter<String> =
+        object : ArrayAdapter<String>(this, android.R.layout.simple_spinner_item, items) {
+            init { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+
+            private fun styleItem(view: View): View {
+                (view as? TextView)?.apply {
+                    setTextColor(accent)
+                    textSize = 14f
+                    setPadding(dp(12), dp(10), dp(12), dp(10))
+                    setBackgroundColor(panel)
+                }
+                return view
+            }
+
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
+                styleItem(super.getView(position, convertView, parent))
+
+            override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View =
+                styleItem(super.getDropDownView(position, convertView, parent))
+        }
+
     private fun roundedPanel(color: Int, radiusDp: Int): android.graphics.drawable.GradientDrawable =
         android.graphics.drawable.GradientDrawable().apply {
             setColor(color)
@@ -364,7 +386,7 @@ class MainActivity : Activity() {
         val repos = githubReposBySlot[selectedAccount].orEmpty()
         val labels = if (repos.isEmpty()) listOf("Repositories not loaded — connect this account first")
             else repos.map { it.owner + "/" + it.name + if (it.isPrivate) " • private" else " • public" }
-        spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+        spinner.adapter = neonAdapter(labels)
         spinner.isEnabled = repos.isNotEmpty()
         val selected = selectedRepositoryBySlot[selectedAccount]
         val index = repos.indexOfFirst { it.owner + "/" + it.name == selected }
@@ -464,7 +486,7 @@ class MainActivity : Activity() {
                             githubTokensBySlot[slot] = token
                             githubReposBySlot[slot] = repos
                             githubLoginsBySlot[slot] = identity.login
-                            githubAccountSpinner?.adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, accountLabels())
+                            githubAccountSpinner?.adapter = neonAdapter(accountLabels())
                             githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
                             if (selectedAccount == slot) {
                                 githubStatusLabel?.text = "GitHub connection: " + identity.login + " • read-only"
@@ -747,8 +769,8 @@ class MainActivity : Activity() {
         val search = EditText(this).apply {
             hint = "Search action, result, account slot…"
             setSingleLine(true)
-            setTextColor(0xFF172033.toInt())
-            setHintTextColor(0xFF66758A.toInt())
+            setTextColor(ink)
+            setHintTextColor(muted)
         }
         val dateFilter = EditText(this).apply {
             hint = "Filter date (YYYY-MM-DD)"
@@ -757,12 +779,10 @@ class MainActivity : Activity() {
             setHintTextColor(0xFF66758A.toInt())
         }
         val actionFilter = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
-                listOf("All actions", "account", "diagnostics", "policy", "runner", "history"))
+            adapter = neonAdapter(listOf("All actions", "account", "diagnostics", "policy", "runner", "history"))
         }
         val resultFilter = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item,
-                listOf("All results", "Recorded", "Success", "Failed", "Unavailable"))
+            adapter = neonAdapter(listOf("All results", "Recorded", "Success", "Failed", "Unavailable"))
         }
         val results = TextView(this).apply {
             textSize = 12f
