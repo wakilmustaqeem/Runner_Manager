@@ -257,6 +257,32 @@ class MainActivity : Activity() {
         runnerPanel.addView(controlRow)
         root.addView(runnerPanel, marginParams(bottom = 12))
 
+        section(root, "Permissions & access audit")
+        val permissionPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(13), dp(12), dp(13), dp(12))
+            background = roundedPanel(panel, 18)
+        }
+        permissionPanel.addView(text(
+            "This app declares INTERNET only and requests no runtime permissions. DroidRunner permissions must be reviewed in Android Settings. Use Refresh repositories / runner metadata above to probe GitHub read access.",
+            13f, muted, false
+        ).apply { setPadding(0, 0, 0, dp(8)) })
+        permissionPanel.addView(Button(this).apply {
+            text = "Open Android Apps settings"
+            setOnClickListener {
+                try {
+                    startActivity(Intent(android.provider.Settings.ACTION_MANAGE_APPLICATIONS_SETTINGS))
+                } catch (_: Exception) {
+                    Toast.makeText(this@MainActivity, "Open Settings → Apps → DroidRunner → Permissions.", Toast.LENGTH_LONG).show()
+                }
+            }
+        }, marginParams(bottom = 6))
+        permissionPanel.addView(text(
+            "Read-only guidance: no permissions are escalated and runner registration / Start / Stop remain disabled.",
+            12f, accent, false
+        ))
+        root.addView(permissionPanel, marginParams(bottom = 12))
+
         section(root, "Power & job policy")
         root.addView(text("Saved locally only. These settings do not yet change DroidRunner admission or interrupt jobs.", 13f, muted, false)
             .apply { setPadding(0, 0, 0, dp(7)) })
