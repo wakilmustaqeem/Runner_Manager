@@ -469,12 +469,17 @@ class MainActivity : Activity() {
                             recordActivity("github_device_authorization_cancelled", "CANCELLED", slot)
                         }.show()
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                // The API client omits response bodies and headers; expose only bounded, non-secret error text.
+                val reason = (e.message ?: e.javaClass.simpleName).take(120)
                 runOnUiThread {
-                    githubStatusLabel?.text = "GitHub connection: Authorization request failed"
-                    Toast.makeText(this, "Check Client ID, Device Flow settings, and network.", Toast.LENGTH_LONG).show()
-                    recordActivity("github_device_authorization_failed", "FAILED", slot)
-                    logAudit("github_device_authorization_failed")
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (selectedAccount == slot) {
+                        githubStatusLabel?.text = "GitHub connection: Start failed • " + reason
+                    }
+                    Toast.makeText(this, "GitHub device authorization could not start: " + reason, Toast.LENGTH_LONG).show()
+                    recordActivity("github_device_authorization_start_failed", "FAILED: " + reason, slot)
+                    logAudit("github_device_authorization_start_failed")
                 }
             }
         }
