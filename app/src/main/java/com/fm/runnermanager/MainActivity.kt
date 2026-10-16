@@ -124,14 +124,14 @@ class MainActivity : Activity() {
         section(root, "Device health")
         val metrics = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(13), dp(12), dp(13), dp(12))
+            setPadding(dp(10), dp(8), dp(10), dp(8))
             background = roundedPanel(panel, 18)
         }
-        cpuLabel = text("CPU usage: reading…", 14f, ink, true)
-        ramLabel = text("RAM: reading…", 14f, ink, true)
-        diskLabel = text("Disk: reading…", 14f, ink, true)
-        batteryLabel = text("Battery: reading…", 14f, ink, true)
-        powerLabel = text("Power: reading…", 13f, muted, false)
+        cpuLabel = text("CPU usage: reading…", 12f, ink, true)
+        ramLabel = text("RAM: reading…", 12f, ink, true)
+        diskLabel = text("Disk: reading…", 12f, ink, true)
+        batteryLabel = text("Battery: reading…", 12f, ink, true)
+        powerLabel = text("Power: reading…", 11f, muted, false)
         cpuBar = progressBar()
         ramBar = progressBar()
         diskBar = progressBar()
@@ -141,8 +141,8 @@ class MainActivity : Activity() {
         addMetric(metrics, diskLabel!!, diskBar!!)
         addMetric(metrics, batteryLabel!!, batteryBar!!)
         metrics.addView(powerLabel!!)
-        metrics.addView(text("Device readings refresh locally every 3 seconds.", 11f, muted, false)
-            .apply { setPadding(0, dp(8), 0, 0) })
+        metrics.addView(text("Device readings refresh locally every 3 seconds.", 10f, muted, false)
+            .apply { setPadding(0, dp(4), 0, 0) })
         root.addView(metrics, marginParams(bottom = 12))
 
         section(root, "Account & repository")
@@ -203,9 +203,22 @@ class MainActivity : Activity() {
         section(root, "Runner & job activity")
         val runnerPanel = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(13), dp(12), dp(13), dp(12))
+            setPadding(dp(16), dp(16), dp(16), dp(16))
             background = roundedPanel(panel, 18)
         }
+        val liveJobCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(15), dp(16), dp(15), dp(16))
+            background = roundedPanel(0xFF0D1B2E.toInt(), 16)
+        }
+        liveJobCard.addView(text("LIVE JOB STATUS", 18f, accent, true))
+        liveJobCard.addView(text("No live job feed connected", 16f, ink, true)
+            .apply { setPadding(0, dp(7), 0, dp(5)) })
+        liveJobCard.addView(text(
+            "Repository/job adapter is not implemented yet. Queued, running, and completed job states are not available in this app yet.",
+            13f, muted, false
+        ))
+        runnerPanel.addView(liveJobCard, marginParams(bottom = 12))
         githubStatusLabel = text("GitHub connection: Not configured", 14f, ink, true)
         runnerPanel.addView(githubStatusLabel!!)
         runnerPanel.addView(text("Runner status: Read-only metadata only; Start/Stop disabled", 13f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
@@ -636,8 +649,8 @@ class MainActivity : Activity() {
 
     private fun addMetric(parent: LinearLayout, label: TextView, bar: ProgressBar) {
         parent.addView(label)
-        parent.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(8)).apply {
-            topMargin = dp(5); bottomMargin = dp(10)
+        parent.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(5)).apply {
+            topMargin = dp(3); bottomMargin = dp(6)
         })
     }
 
