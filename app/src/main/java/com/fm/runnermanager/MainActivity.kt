@@ -211,21 +211,7 @@ class MainActivity : Activity() {
         runnerPanel.addView(text("Runner status: Read-only metadata only; Start/Stop disabled", 13f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
         runnerPanel.addView(Button(this).apply {
             text = "Connect GitHub (read-only)"
-            setOnClickListener {
-                // Give immediate, visible feedback so a silent click is diagnosable.
-                githubStatusLabel?.text = "GitHub connection: Starting authorization for Account " + selectedAccount + "…"
-                Toast.makeText(this@MainActivity, "Starting GitHub connection for Account " + selectedAccount + "…", Toast.LENGTH_SHORT).show()
-                recordActivity("github_connect_button_tapped", "STARTED", selectedAccount)
-                logAudit("github_connect_button_tapped")
-                try {
-                    beginGitHubConnection()
-                } catch (_: Exception) {
-                    githubStatusLabel?.text = "GitHub connection: Could not start"
-                    Toast.makeText(this@MainActivity, "Could not start GitHub authorization. Check app setup and retry.", Toast.LENGTH_LONG).show()
-                    recordActivity("github_device_authorization_start_failed", "FAILED", selectedAccount)
-                    logAudit("github_device_authorization_start_failed")
-                }
-            }
+            setOnClickListener { beginGitHubConnection() }
         }, marginParams(bottom = 6))
         runnerPanel.addView(Button(this).apply {
             text = "Refresh repositories / runner metadata"
