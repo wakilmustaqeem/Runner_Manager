@@ -268,6 +268,10 @@ class MainActivity : Activity() {
             13f, muted, false
         ).apply { setPadding(0, 0, 0, dp(8)) })
         permissionPanel.addView(Button(this).apply {
+            text = "Check GitHub read access"
+            setOnClickListener { refreshGitHubMetadata() }
+        }, marginParams(bottom = 6))
+        permissionPanel.addView(Button(this).apply {
             text = "Open Android Apps settings"
             setOnClickListener {
                 try {
