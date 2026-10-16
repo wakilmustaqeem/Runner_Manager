@@ -177,8 +177,7 @@ class MainActivity : Activity() {
         repoSpinner = Spinner(this).apply {
             onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
-                    selectedRepositoryBySlot.remove(selectedAccount)
-                }
+                    selectedRepositoryBySlot.remove(selectedAccount)                }
                 override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                     val repos = githubReposBySlot[selectedAccount].orEmpty()
                     if (position in repos.indices) {
@@ -211,7 +210,21 @@ class MainActivity : Activity() {
         runnerPanel.addView(text("Runner status: Read-only metadata only; Start/Stop disabled", 13f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
         runnerPanel.addView(Button(this).apply {
             text = "Connect GitHub (read-only)"
-            setOnClickListener { beginGitHubConnection() }
+            setOnClickListener {
+                // Give immediate, visible feedback so a silent click is diagnosable.
+                githubStatusLabel?.text = "GitHub connection: Starting authorization for Account " + selectedAccount + "…"
+                Toast.makeText(this@MainActivity, "Starting GitHub connection for Account " + selectedAccount + "…", Toast.LENGTH_SHORT).show()
+                recordActivity("github_connect_button_tapped", "STARTED", selectedAccount)
+                logAudit("github_connect_button_tapped")
+                try {
+                    beginGitHubConnection()
+                } catch (_: Exception) {
+                    githubStatusLabel?.text = "GitHub connection: Could not start"
+                    Toast.makeText(this@MainActivity, "Could not start GitHub authorization. Check app setup and retry.", Toast.LENGTH_LONG).show()
+                    recordActivity("github_device_authorization_start_failed", "FAILED", selectedAccount)
+                    logAudit("github_device_authorization_start_failed")
+                }
+            }
         }, marginParams(bottom = 6))
         runnerPanel.addView(Button(this).apply {
             text = "Refresh repositories / runner metadata"
@@ -357,8 +370,7 @@ class MainActivity : Activity() {
     private fun removeSelectedAccount() {
         val ids = accountIds()
         if (ids.size <= 1) {
-            Toast.makeText(this, "Keep at least one account entry. Add another before removing this one.", Toast.LENGTH_LONG).show()
-            return
+            Toast.makeText(this, "Keep at least one account entry. Add another before removing this one.", Toast.LENGTH_LONG).show()            return
         }
         val id = selectedAccount
         AlertDialog.Builder(this)
@@ -537,8 +549,7 @@ class MainActivity : Activity() {
                 val identity = client.identity(token)
                 val repos = client.repositories(token)
                 val selectedPath = selectedRepositoryBySlot[slot]
-                val selectedRepo = repos.firstOrNull { it.owner + "/" + it.name == selectedPath }
-                val runs = if (selectedRepo == null) emptyList() else client.workflowRuns(token, selectedRepo.owner, selectedRepo.name)
+                val selectedRepo = repos.firstOrNull { it.owner + "/" + it.name == selectedPath }                val runs = if (selectedRepo == null) emptyList() else client.workflowRuns(token, selectedRepo.owner, selectedRepo.name)
                 // Runner listing can require stronger repository permissions than workflow-run metadata.
                 // Keep successful workflow data usable if the runner endpoint is unavailable.
                 val runnerResult = if (selectedRepo == null) null
@@ -717,8 +728,7 @@ class MainActivity : Activity() {
         AlertDialog.Builder(this).setTitle("Local Security Audit Log")
             .setMessage(if (entries.isBlank()) "No local security/admin events recorded yet." else entries)
             .setPositiveButton("Close", null)
-            .setNeutralButton("Clear log…") { _, _ ->
-                AlertDialog.Builder(this@MainActivity)
+            .setNeutralButton("Clear log…") { _, _ ->                AlertDialog.Builder(this@MainActivity)
                     .setTitle("Clear Security Audit Log?")
                     .setMessage("This removes local security/admin event history. Activity History remains separate. This action cannot be undone.")
                     .setNegativeButton("Cancel", null)
@@ -898,35 +908,3 @@ class MainActivity : Activity() {
         val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
         val percent = if (level >= 0 && scale > 0) level * 100 / scale else -1
-        val status = battery?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-        val charging = status == BatteryManager.BATTERY_STATUS_CHARGING || status == BatteryManager.BATTERY_STATUS_FULL
-        return "Device: " + Build.MANUFACTURER + " " + Build.MODEL + "\n" +
-            "Android: " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")\n" +
-            "Supported ABI: " + (Build.SUPPORTED_ABIS.firstOrNull() ?: "Unknown") + "\n" +
-            "CPU usage: " + (readCpuPercent().let { if (it < 0) "Unavailable" else it.toString() + "%" }) + "\n" +
-            "Internal storage free: " + formatBytes(dataStats.availableBytes) + " / " + formatBytes(dataStats.totalBytes) + "\n" +
-            "System-reported available RAM: " + formatBytes(memory.availMem) + " / " + formatBytes(memory.totalMem) + "\n" +
-            "Battery: " + (if (percent < 0) "Unavailable" else percent.toString() + "%") + " • " + (if (charging) "Charging" else "Not charging") + "\n" +
-            "GitHub connection: Not configured\n" +
-            "Runner registration: Not configured\n" +
-            "Repository/job adapter: Not implemented\n" +
-            "FM Commerce PHP Lint result: " + (preferences.getString("php_lint_status", "UNVERIFIED") ?: "UNVERIFIED")
-    }
-
-    private fun section(parent: LinearLayout, title: String) {
-        parent.addView(text(title, 19f, ink, true).apply { setPadding(0, dp(12), 0, dp(8)) })
-    }
-    private fun formatBytes(bytes: Long): String =
-        String.format(Locale.US, "%.2f GiB", bytes.toDouble() / (1024.0 * 1024.0 * 1024.0))
-    private fun aliasKey(index: Int) = "account_slot_" + index
-    private fun defaultAlias(index: Int) = "Account " + index
-    private fun marginParams(bottom: Int): ViewGroup.MarginLayoutParams =
-        ViewGroup.MarginLayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-            .apply { bottomMargin = dp(bottom) }
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-    private fun text(value: String, sizeSp: Float, color: Int, bold: Boolean): TextView =
-        TextView(this).apply {
-            text = value; textSize = sizeSp; setTextColor(color); gravity = Gravity.START
-            if (bold) setTypeface(typeface, android.graphics.Typeface.BOLD)
-        }
-}
