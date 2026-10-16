@@ -491,8 +491,11 @@ class MainActivity : Activity() {
                     val result = client.pollDeviceToken(deviceCode)
                     val token = result.accessToken
                     if (!token.isNullOrBlank()) {
+                        // Confirm the identity first. Repository listing is a separate capability and
+                        // must not turn a successful OAuth authorization into a false "not connected".
                         val identity = client.identity(token)
-                        val repos = client.repositories(token)
+                        val repoResult = runCatching { client.repositories(token) }
+                        val repos = repoResult.getOrDefault(emptyList())
                         runOnUiThread {
                             if (isFinishing || isDestroyed) return@runOnUiThread
                             githubTokensBySlot[slot] = token
@@ -501,33 +504,47 @@ class MainActivity : Activity() {
                             githubAccountSpinner?.adapter = neonAdapter(accountLabels())
                             githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
                             if (selectedAccount == slot) {
-                                githubStatusLabel?.text = "GitHub connection: " + identity.login + " • read-only"
+                                githubStatusLabel?.text = if (repoResult.isSuccess) {
+                                    "GitHub connection: " + identity.login + " • read-only"
+                                } else {
+                                    "GitHub connected: " + identity.login + " • repository list unavailable"
+                                }
                                 updateRepositorySpinner()
                             }
                             recordActivity("github_account_connected_readonly", "SUCCESS", slot)
                             logAudit("github_account_connected_readonly")
-                            Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Token remains memory-only.", Toast.LENGTH_LONG).show()
+                            if (repoResult.isSuccess) {
+                                Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Token remains memory-only.", Toast.LENGTH_LONG).show()
+                            } else {
+                                // Keep diagnostic detail limited to the HTTP/status category; never log tokens or response bodies.
+                                val reason = repoResult.exceptionOrNull()?.message?.take(100) ?: "Repository metadata unavailable"
+                                recordActivity("github_repository_metadata_unavailable", reason, slot)
+                                Toast.makeText(this, "GitHub connected as " + identity.login + ", but repositories could not be loaded. Tap Refresh metadata; details: " + reason, Toast.LENGTH_LONG).show()
+                            }
                         }
                         return@execute
                     }
-                    when (result.error) {
-                        "authorization_pending" -> Unit
+                    when (val error = result.error) {
+                        null, "authorization_pending" -> Unit
                         "slow_down" -> interval += 5L
                         "expired_token" -> throw IllegalStateException("Device code expired")
                         "access_denied" -> throw IllegalStateException("Authorization denied")
                         "incorrect_client_credentials" -> throw IllegalStateException("Invalid Client ID")
+                        else -> throw IllegalStateException("GitHub authorization error: " + error)
                     }
                     if (result.intervalSeconds != null) interval = maxOf(interval, result.intervalSeconds)
                 }
                 throw IllegalStateException("Device authorization timed out")
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                // The client deliberately excludes response bodies/headers so diagnostics cannot leak tokens.
+                val reason = (e.message ?: e.javaClass.simpleName).take(120)
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
-                    if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Not connected"
-                    Toast.makeText(this, "Authorization failed or timed out. Verify app configuration and retry.", Toast.LENGTH_LONG).show()
-                    recordActivity("github_device_authorization_failed", "FAILED", slot)
+                    if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Failed • " + reason
+                    Toast.makeText(this, "GitHub authorization failed: " + reason, Toast.LENGTH_LONG).show()
+                    recordActivity("github_device_authorization_failed", "FAILED: " + reason, slot)
                     logAudit("github_device_authorization_failed")
                 }
             }
