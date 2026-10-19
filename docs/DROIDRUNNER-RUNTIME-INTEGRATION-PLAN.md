@@ -1,6 +1,6 @@
 # FM Runner Manager — real runner runtime integration
 
-Status: source audit complete; runtime port/integration has not started. No runtime token has been requested, no runner registered, and no build or Actions job run.
+Status: upstream source audit complete. A separate GitHub App Device Flow client has been added, but is not wired into the UI or tested against a configured GitHub App. Runtime port/integration has not started. No runner registration token has been requested, no runner registered, and no build or Actions job run.
 
 ## Decision
 
@@ -27,13 +27,14 @@ If the existing FM Runner Manager OAuth App must be retained instead, pause the 
 
 ## Integration path
 
-1. Preserve the existing FM dashboard and account separation, but replace the incorrect OAuth-scope assumption with an explicit GitHub App authentication/installation model.
-2. Port or adapt the upstream GitHub App API, token/session handling, and repository target picker with attribution and licence notices.
-3. Port the runtime installer only with signed manifest verification, archive digest verification, and a pinned/verified runtime source. Never download and execute an unverified bundle.
-4. Port the foreground runner service, PRoot invocation, job policy enforcement, listener supervision, and state stream. Do not create a fake status or mark the runner Active merely because registration-token issuance succeeded.
-5. Keep the registration token in memory only and pass it directly to the runtime's configuration process; never render it in a dialog, audit record, clipboard, or exception.
-6. Add a separate Register Runner confirmation showing the authenticated account, exact repository, and required Administration permission. Do not register on connect.
-7. Test one harmless workflow on a dedicated test repository. Only after the runner is shown online and the job completes on this phone should FM Commerce be enabled.
+1. A separate `GitHubAppDeviceFlowClient` now implements device-code request, token polling, refresh-token exchange, and identity lookup without requesting the classic OAuth `repo` scope. It is intentionally isolated and not wired to the current UI; validate it with the actual dedicated GitHub App before switching login paths.
+2. Preserve the existing FM dashboard and account separation, but replace the incorrect OAuth-scope assumption with an explicit GitHub App authentication/installation model.
+3. Port or adapt the upstream GitHub App API, token/session handling, and repository target picker with attribution and licence notices.
+4. Port the runtime installer only with signed manifest verification, archive digest verification, and a pinned/verified runtime source. Never download and execute an unverified bundle.
+5. Port the foreground runner service, PRoot invocation, job policy enforcement, listener supervision, and state stream. Do not create a fake status or mark the runner Active merely because registration-token issuance succeeded.
+6. Keep the registration token in memory only and pass it directly to the runtime's configuration process; never render it in a dialog, audit record, clipboard, or exception.
+7. Add a separate Register Runner confirmation showing the authenticated account, exact repository, and required Administration permission. Do not register on connect.
+8. Test one harmless workflow on a dedicated test repository. Only after the runner is shown online and the job completes on this phone should FM Commerce be enabled.
 
 ## GPL-2.0 compliance gate
 
