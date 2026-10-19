@@ -24,39 +24,42 @@ object RunnerControlReadiness {
         val canStart: Boolean,
         val canStop: Boolean,
         val canReportOnline: Boolean,
-        val blockers: List<String>
+        val registerBlockers: List<String>,
+        val startBlockers: List<String>,
+        val stopBlockers: List<String>,
+        val onlineBlockers: List<String>
     )
 
     fun evaluate(facts: RunnerControlFacts): Decision {
-        val blockers = mutableListOf<String>()
-        if (!facts.accountIdentityVerified) blockers += "GitHub account identity is not verified"
-        if (!facts.repositorySelected) blockers += "No repository is selected"
-        if (!facts.registrationPermissionVerified) blockers += "Repository registration permission is not verified"
-        if (!facts.runtimeInstallPreflightPassed) blockers += "Runtime integrity preflight has not passed"
-        if (!facts.runtimeLayoutReady) blockers += "Installed runtime layout is not ready"
+        val registerBlockers = mutableListOf<String>()
+        if (!facts.accountIdentityVerified) registerBlockers += "GitHub account identity is not verified"
+        if (!facts.repositorySelected) registerBlockers += "No repository is selected"
+        if (!facts.registrationPermissionVerified) registerBlockers += "Repository registration permission is not verified"
+        if (!facts.runtimeInstallPreflightPassed) registerBlockers += "Runtime integrity preflight has not passed"
+        if (!facts.runtimeLayoutReady) registerBlockers += "Installed runtime layout is not ready"
 
-        val canRegister = facts.accountIdentityVerified &&
-            facts.repositorySelected &&
-            facts.registrationPermissionVerified &&
-            facts.runtimeInstallPreflightPassed &&
-            facts.runtimeLayoutReady
+        val startBlockers = registerBlockers.toMutableList()
+        if (!facts.serviceConnected) startBlockers += "No verified local runner service connection"
+        if (facts.processAlive) startBlockers += "Runner process is already alive"
 
-        val canStart = canRegister && facts.serviceConnected && !facts.processAlive
-        val canStop = facts.serviceConnected && facts.processAlive
-        val canReportOnline = facts.serviceConnected &&
-            facts.processAlive &&
-            facts.githubRunnerOnline
+        val stopBlockers = mutableListOf<String>()
+        if (!facts.serviceConnected) stopBlockers += "No verified local runner service connection"
+        if (!facts.processAlive) stopBlockers += "Local runner process is not confirmed alive"
 
-        if (!facts.serviceConnected) blockers += "No verified local runner service connection"
-        if (!facts.processAlive) blockers += "Local runner process is not confirmed alive"
-        if (!facts.githubRunnerOnline) blockers += "GitHub has not confirmed this runner online"
+        val onlineBlockers = mutableListOf<String>()
+        if (!facts.serviceConnected) onlineBlockers += "No verified local runner service connection"
+        if (!facts.processAlive) onlineBlockers += "Local runner process is not confirmed alive"
+        if (!facts.githubRunnerOnline) onlineBlockers += "GitHub has not confirmed this runner online"
 
         return Decision(
-            canRegister = canRegister,
-            canStart = canStart,
-            canStop = canStop,
-            canReportOnline = canReportOnline,
-            blockers = blockers.distinct()
+            canRegister = registerBlockers.isEmpty(),
+            canStart = startBlockers.isEmpty(),
+            canStop = stopBlockers.isEmpty(),
+            canReportOnline = onlineBlockers.isEmpty(),
+            registerBlockers = registerBlockers.toList(),
+            startBlockers = startBlockers.toList(),
+            stopBlockers = stopBlockers.toList(),
+            onlineBlockers = onlineBlockers.toList()
         )
     }
 }
