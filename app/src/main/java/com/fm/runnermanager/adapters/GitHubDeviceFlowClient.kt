@@ -10,11 +10,11 @@ import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
 /**
- * Minimal GitHub App device-flow + read-only REST client foundation.
+ * Minimal GitHub OAuth device-flow + read-only REST client foundation.
  *
  * Security boundaries:
- * - Caller must obtain the Client ID from the user's registered GitHub App.
- * - Never pass a client secret or PAT; GitHub App device flow uses a public Client ID.
+ * - Caller must obtain the Client ID from the user's registered OAuth App.
+ * - Never pass a client secret or PAT; device flow uses a public Client ID.
  * - Call every method off the Android main thread.
  * - Access tokens are accepted only as method arguments and are never persisted or logged here.
  * - Keep token storage/session handling outside this class and use a reviewed encrypted vault.
@@ -63,15 +63,20 @@ class GitHubDeviceFlowClient(
     )
 
     init {
-        require(clientId.isNotBlank()) { "GitHub App Client ID is required" }
+        require(clientId.isNotBlank()) { "GitHub OAuth App Client ID is required" }
         require(!clientId.contains("\n") && !clientId.contains("\r")) { "Invalid Client ID" }
     }
 
-    /** Start GitHub App device authorization. Do not call on the UI thread. */
+    /** Start OAuth device authorization. Do not call on the UI thread. */
     fun requestDeviceCode(): DeviceCode {
         val json = postForm(
             "https://github.com/login/device/code",
-            mapOf("client_id" to clientId),
+            mapOf(
+                "client_id" to clientId,
+                // Private-repository access requires the broad OAuth "repo" scope.
+                // The UI must explain this before starting authorization; do not treat it as read-only.
+                "scope" to "repo read:user"
+            ),
             acceptJson = true
         )
         return DeviceCode(
@@ -112,7 +117,7 @@ class GitHubDeviceFlowClient(
     }
 
     /** Lists repositories visible to the authorized identity; paginated to a bounded maximum. */
-    fun repositories(accessToken: String, maxPages: Int = 5): List<Repository> {
+    fun repositories(accessToken: String, maxPages: Int = 10): List<Repository> {
         require(maxPages in 1..10) { "maxPages must be between 1 and 10" }
         val result = mutableListOf<Repository>()
         for (page in 1..maxPages) {
