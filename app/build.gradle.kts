@@ -27,3 +27,8 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 }
+
+dependencies {
+    // Required by local JVM unit tests; this does not add an Android test runner.
+    testImplementation("junit:junit:4.13.2")
+}
