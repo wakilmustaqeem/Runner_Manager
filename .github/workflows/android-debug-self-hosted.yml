@@ -1,0 +1,41 @@
+name: Android Debug Build (Self-hosted DroidRunner)
+
+on:
+  push:
+    branches:
+      - fix/github-session-generation-guard-2026-10-19
+    paths:
+      - "app/**"
+      - "*.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/android-debug-self-hosted.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-debug-self-hosted-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-debug:
+    name: Build and test debug APK
+    runs-on:
+      - self-hosted
+      - android
+      - android-api-33
+      - arm64
+      - soc-spreadtrum-t820-ums9620-2h10-unisoc-t820
+    timeout-minutes: 30
+    steps:
+      - name: Checkout approved branch
+        uses: actions/checkout@v4
+      - name: Verify Java and Gradle are already available
+        run: |
+          java -version
+          gradle --version
+      - name: Build debug APK
+        run: gradle --no-daemon assembleDebug
+      - name: Run unit tests when configured
+        run: gradle --no-daemon testDebugUnitTest
