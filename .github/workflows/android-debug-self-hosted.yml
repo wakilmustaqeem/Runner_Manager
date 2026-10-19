@@ -20,22 +20,30 @@ concurrency:
 
 jobs:
   build-debug:
-    name: Build and test debug APK
+    name: Diagnose DroidRunner Java and Gradle
     runs-on:
       - self-hosted
       - android
       - android-api-33
       - arm64
       - soc-spreadtrum-t820-ums9620-2h10-unisoc-t820
-    timeout-minutes: 30
+    timeout-minutes: 5
     steps:
       - name: Checkout approved branch
         uses: actions/checkout@v4
-      - name: Verify Java and Gradle are already available
+      - name: Read-only Java and Gradle environment diagnostics
+        shell: bash
         run: |
-          java -version
-          gradle --version
-      - name: Build debug APK
-        run: gradle --no-daemon assembleDebug
-      - name: Run unit tests when configured
-        run: gradle --no-daemon testDebugUnitTest
+          printf '%s\n' '--- runner identity ---'
+          printf 'USER=%s\nHOME=%s\n' "$USER" "$HOME"
+          printf '%s\n' '--- environment ---'
+          printf 'JAVA_HOME=%s\nPATH=%s\n' "$JAVA_HOME" "$PATH"
+          printf '%s\n' '--- executable lookup ---'
+          command -v java || true
+          command -v javac || true
+          command -v gradle || true
+          printf '%s\n' '--- common Java locations ---'
+          for p in /usr/bin/java /usr/lib/jvm/*/bin/java /opt/*/bin/java /data/data/com.termux/files/usr/bin/java; do
+            if [ -x "$p" ]; then printf '%s\n' "$p"; fi
+          done
+          printf '%s\n' '--- diagnostic only; APK build intentionally skipped ---'
