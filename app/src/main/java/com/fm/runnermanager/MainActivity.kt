@@ -497,6 +497,7 @@ class MainActivity : Activity() {
                 }
             } catch (_: Exception) {
                 runOnUiThread {
+                    if (isFinishing || isDestroyed || !isCurrentGitHubAppAuth(slot, generation)) return@runOnUiThread
                     if (selectedAccount == slot) githubStatusLabel?.text = "GitHub App: Authorization request failed"
                     Toast.makeText(this, "GitHub App device authorization failed. Check App settings and network.", Toast.LENGTH_LONG).show()
                     recordActivity("github_app_device_authorization_failed", "FAILED", slot)
