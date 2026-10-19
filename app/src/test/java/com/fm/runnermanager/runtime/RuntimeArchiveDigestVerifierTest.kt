@@ -1,5 +1,8 @@
 package com.fm.runnermanager.runtime
 
+import java.io.ByteArrayInputStream
+import java.io.IOException
+import java.io.InputStream
 import java.security.MessageDigest
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -24,32 +27,38 @@ class RuntimeArchiveDigestVerifierTest {
     }
 
     @Test
-    fun rejectsMismatchingDigest() {
-        val wrong = "0".repeat(64)
+    fun hashesInputStreamInBoundedChunks() {
         assertEquals(
-            RuntimeArchiveDigestVerifier.Result.Mismatch,
-            RuntimeArchiveDigestVerifier.verify(archive, wrong)
+            RuntimeArchiveDigestVerifier.Result.Match,
+            RuntimeArchiveDigestVerifier.verify(ByteArrayInputStream(archive), sha256(archive))
         )
     }
 
     @Test
-    fun rejectsMalformedExpectedDigest() {
+    fun rejectsMismatchingDigest() {
+        assertEquals(
+            RuntimeArchiveDigestVerifier.Result.Mismatch,
+            RuntimeArchiveDigestVerifier.verify(archive, "0".repeat(64))
+        )
+    }
+
+    @Test
+    fun rejectsMalformedExpectedDigestBeforeReadingStream() {
         assertEquals(
             RuntimeArchiveDigestVerifier.Result.InvalidExpectedDigest,
             RuntimeArchiveDigestVerifier.verify(archive, "not-a-sha256")
         )
-        assertEquals(
-            RuntimeArchiveDigestVerifier.Result.InvalidExpectedDigest,
-            RuntimeArchiveDigestVerifier.verify(archive, "a".repeat(63))
-        )
     }
 
     @Test
-    fun rejectsEmptyArchiveUnlessDigestActuallyMatchesEmptyBytes() {
-        val empty = byteArrayOf()
+    fun reportsReadFailureInsteadOfTreatingItAsVerified() {
+        val broken = object : InputStream() {
+            override fun read(): Int = throw IOException("simulated read failure")
+        }
+        val result = RuntimeArchiveDigestVerifier.verify(broken, "a".repeat(64))
         assertEquals(
-            RuntimeArchiveDigestVerifier.Result.Mismatch,
-            RuntimeArchiveDigestVerifier.verify(empty, sha256(archive))
+            RuntimeArchiveDigestVerifier.Result.ReadFailure("simulated read failure"),
+            result
         )
     }
 
