@@ -16,11 +16,11 @@ permissions:
 
 concurrency:
   group: android-debug-self-hosted-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  build-debug:
-    name: Bootstrap and build debug APK
+  build:
+    name: Build and test debug APK
     runs-on:
       - self-hosted
       - android
@@ -29,15 +29,17 @@ jobs:
       - soc-spreadtrum-t820-ums9620-2h10-unisoc-t820
     timeout-minutes: 45
     steps:
-      - name: Checkout approved branch
+      - name: Checkout feature branch
         uses: actions/checkout@v4
 
-      - name: Set up Java 17 in temporary runner workspace
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+      # Download the command-line tools directly with curl retries because the
+      # setup-android action timed out while fetching the same Google archive.
       - name: Download Android command-line tools with network retries
         shell: bash
         run: |
@@ -45,39 +47,54 @@ jobs:
           export ANDROID_HOME="$RUNNER_TEMP/android-sdk"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
-          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
           archive="$RUNNER_TEMP/commandlinetools-linux.zip"
           staging="$RUNNER_TEMP/android-cmdline-tools"
           mkdir -p "$ANDROID_HOME/cmdline-tools" "$staging"
           curl --fail --location --show-error \
             --connect-timeout 30 --max-time 900 \
-            --retry 5 --retry-all-errors --retry-delay 10 \
+            --retry 8 --retry-all-errors --retry-delay 10 \
             "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip" \
             --output "$archive"
           (cd "$staging" && "$JAVA_HOME/bin/jar" xf "$archive")
           sdkmanager_path="$(find "$staging" -type f -path '*/bin/sdkmanager' -print -quit)"
           if [ -z "$sdkmanager_path" ]; then
             echo "Could not find sdkmanager after extracting the downloaded archive."
+            echo "Extracted files (first 80):"
             find "$staging" -maxdepth 5 -type f | head -80
             exit 1
           fi
           cmdline_tools_dir="$(dirname "$(dirname "$sdkmanager_path")")"
+          rm -rf "$ANDROID_HOME/cmdline-tools/latest"
           mv "$cmdline_tools_dir" "$ANDROID_HOME/cmdline-tools/latest"
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           chmod +x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
 
-      - name: Accept Android SDK licenses and install required components
+      - name: Accept licenses and install Android SDK components
         shell: bash
         run: |
           set -euo pipefail
+          # Keep sdkmanager failure visible without failing on yes being closed after acceptance.
           set +o pipefail
           yes | sdkmanager --sdk_root="$ANDROID_HOME" --licenses
           set -o pipefail
-          sdkmanager --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.1"
+          for attempt in 1 2 3; do
+            if sdkmanager --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.1"; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "SDK component install attempt $attempt failed; retrying in 15 seconds."
+              sleep 15
+            fi
+          done
+          echo "Android SDK component installation failed after three attempts."
+          exit 1
 
-      - name: Download and validate Gradle 8.9 in temporary workspace
+      # Validate and extract Gradle with the Java 17 jar tool.
+      # This avoids depending on python3 or a system unzip in the PRoot runtime.
+      - name: Download, validate, and extract Gradle 8.9
         shell: bash
         run: |
           set -euo pipefail
@@ -86,20 +103,36 @@ jobs:
           install_dir="$RUNNER_TEMP/gradle-8.9"
           jar="$JAVA_HOME/bin/jar"
           [ -x "$jar" ] || { echo "Java jar tool not found at $jar"; exit 1; }
+          rm -rf "$staging"
           mkdir -p "$staging"
           curl --fail --location --show-error \
             --connect-timeout 30 --max-time 900 \
-            --retry 5 --retry-all-errors --retry-delay 10 \
+            --retry 8 --retry-all-errors --retry-delay 10 \
             "https://services.gradle.org/distributions/gradle-8.9-bin.zip" \
             --output "$archive"
+          echo "Downloaded archive details:"
+          ls -lh "$archive"
+          sha256sum "$archive"
+          echo "Validating Gradle ZIP directory:"
           "$jar" tf "$archive" > "$RUNNER_TEMP/gradle-archive-list.txt"
+          echo "ZIP entries: $(wc -l < "$RUNNER_TEMP/gradle-archive-list.txt")"
+          echo "Extracting Gradle ZIP with Java jar:"
           (cd "$staging" && "$jar" xf "$archive")
+          echo "Gradle archive extraction completed."
+          # The jar tool may not preserve Unix executable bits from ZIP metadata.
           chmod +x "$staging/gradle-8.9/bin/gradle"
-          [ -x "$staging/gradle-8.9/bin/gradle" ] || { echo "Gradle launcher missing after extraction."; exit 1; }
+          if [ ! -x "$staging/gradle-8.9/bin/gradle" ]; then
+            echo "Expected Gradle launcher was not extracted."
+            find "$staging" -maxdepth 4 -type f | head -80
+            exit 1
+          fi
+          rm -rf "$install_dir"
           mv "$staging/gradle-8.9" "$install_dir"
           echo "$install_dir/bin" >> "$GITHUB_PATH"
           "$install_dir/bin/gradle" --version
 
+      # Google's Linux build-tools binaries target x86_64. Replace native tools
+      # with pinned ARM64 builds and verify every downloaded file before use.
       - name: Install verified ARM64 Android build tools
         shell: bash
         run: |
@@ -110,6 +143,7 @@ jobs:
           echo "Runner architecture: $(uname -m)"
           [ "$(uname -m)" = "aarch64" ] || { echo "Expected an ARM64 runner."; exit 1; }
           [ -d "$sdk_tools" ] || { echo "Android build-tools 35.0.1 is missing."; exit 1; }
+          rm -rf "$staging"
           mkdir -p "$staging"
           cat > "$staging/SHA256SUMS" <<'EOF'
           c57d02d2986d7d68147d74525ad8a5fbb105f12723b33f1ce9eab12acd238cf0  aapt2
@@ -119,7 +153,7 @@ jobs:
           EOF
           for tool in aapt2 aidl split-select zipalign; do
             curl --fail --location --show-error --connect-timeout 30 --max-time 300 \
-              --retry 3 --retry-all-errors --retry-delay 5 \
+              --retry 5 --retry-all-errors --retry-delay 5 \
               "$base/$tool" --output "$staging/$tool"
           done
           (cd "$staging" && sha256sum --check SHA256SUMS)
@@ -127,14 +161,18 @@ jobs:
             chmod +x "$staging/$tool"
             install -m 0755 "$staging/$tool" "$sdk_tools/$tool"
           done
+          echo "ARM64 AAPT2 smoke test:"
           "$sdk_tools/aapt2" version
 
-      - name: Build debug APK and run unit tests
+      - name: Build debug APK and run available unit tests
         shell: bash
+        env:
+          # Public GitHub App Client ID; configure as a repository Actions variable.
+          GITHUB_APP_CLIENT_ID: ${{ vars.GITHUB_APP_CLIENT_ID }}
         run: |
           set -euo pipefail
           sdk_aapt2="$ANDROID_HOME/build-tools/35.0.1/aapt2"
-          gradle --no-daemon "-Pandroid.aapt2FromMavenOverride=$sdk_aapt2" assembleDebug testDebugUnitTest
+          gradle --no-daemon "-PgithubAppClientId=${GITHUB_APP_CLIENT_ID:-}" "-Pandroid.aapt2FromMavenOverride=$sdk_aapt2" assembleDebug testDebugUnitTest
 
       - name: Upload debug APK (7-day retention)
         uses: actions/upload-artifact@v4
