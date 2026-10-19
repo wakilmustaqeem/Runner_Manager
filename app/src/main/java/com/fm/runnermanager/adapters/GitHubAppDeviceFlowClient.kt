@@ -46,6 +46,22 @@ class GitHubAppDeviceFlowClient(
     )
 
     data class Identity(val login: String, val name: String?)
+    data class Installation(
+        val id: Long,
+        val account: String,
+        val accountType: String,
+        val appSlug: String,
+        val repositorySelection: String,
+        val administrationPermission: String?
+    )
+    data class Repository(
+        val owner: String,
+        val name: String,
+        val isPrivate: Boolean,
+        val htmlUrl: String
+    ) {
+        val fullName: String get() = "$owner/$name"
+    }
 
     init {
         require(clientId.isNotBlank()) { "GitHub App Client ID is required" }
@@ -123,6 +139,69 @@ class GitHubAppDeviceFlowClient(
             login = json.getString("login"),
             name = json.optString("name").takeIf { it.isNotBlank() }
         )
+    }
+
+    /** List installations of this GitHub App visible to the authenticated user. */
+    fun installations(accessToken: String, maxPages: Int = 10): List<Installation> {
+        require(maxPages in 1..10) { "maxPages must be between 1 and 10" }
+        val result = mutableListOf<Installation>()
+        for (page in 1..maxPages) {
+            val json = getJson(
+                "https://api.github.com/user/installations?per_page=100&page=$page",
+                accessToken
+            )
+            val items = json.optJSONArray("installations") ?: break
+            for (i in 0 until items.length()) {
+                val item = items.getJSONObject(i)
+                val account = item.optJSONObject("account")
+                val permissions = item.optJSONObject("permissions")
+                result += Installation(
+                    id = item.optLong("id", -1L),
+                    account = account?.optString("login").orEmpty(),
+                    accountType = account?.optString("type").orEmpty(),
+                    appSlug = item.optString("app_slug"),
+                    repositorySelection = item.optString("repository_selection"),
+                    administrationPermission = permissions
+                        ?.optString("administration")
+                        ?.takeIf { it.isNotBlank() && it != "null" }
+                )
+            }
+            if (items.length() < 100) break
+        }
+        return result.filter { it.id > 0L && it.account.isNotBlank() }
+    }
+
+    /** List only repositories the selected installation grants to this GitHub App. */
+    fun installationRepositories(
+        accessToken: String,
+        installationId: Long,
+        maxPages: Int = 10
+    ): List<Repository> {
+        require(installationId > 0L) { "Invalid installation ID" }
+        require(maxPages in 1..10) { "maxPages must be between 1 and 10" }
+        val result = mutableListOf<Repository>()
+        for (page in 1..maxPages) {
+            val json = getJson(
+                "https://api.github.com/user/installations/$installationId/repositories?per_page=100&page=$page",
+                accessToken
+            )
+            val items = json.optJSONArray("repositories") ?: break
+            for (i in 0 until items.length()) {
+                val item = items.getJSONObject(i)
+                val owner = item.optJSONObject("owner")?.optString("login").orEmpty()
+                val name = item.optString("name")
+                if (owner.isNotBlank() && name.isNotBlank()) {
+                    result += Repository(
+                        owner = owner,
+                        name = name,
+                        isPrivate = item.optBoolean("private", false),
+                        htmlUrl = item.optString("html_url")
+                    )
+                }
+            }
+            if (items.length() < 100) break
+        }
+        return result
     }
 
     private fun JSONObject.toUserToken(access: String) = UserToken(
