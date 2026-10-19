@@ -74,7 +74,7 @@ class RuntimeArchiveExtractor(
                     if (kind == RuntimeArchiveExtractionPolicy.EntryKind.DIRECTORY) {
                         createDirectoriesSafely(root, canonicalDestination, created)
                     } else {
-                    val parent = canonicalDestination.parent
+                        val parent = canonicalDestination.parent
                         ?: throw ExtractionBlocked("archive file has no parent directory")
                     createDirectoriesSafely(root, parent, created)
                     if (Files.exists(canonicalDestination, LinkOption.NOFOLLOW_LINKS)) {
@@ -92,9 +92,21 @@ class RuntimeArchiveExtractor(
                             val buffer = ByteArray(32 * 1024)
                             var entryBytes = 0L
                             while (true) {
-                                val count = input.read(buffer)
+                                var count = input.read(buffer)
                                 if (count < 0) break
-                                if (count == 0) continue
+                                if (count == 0) {
+                                    val one = input.read()
+                                    if (one < 0) break
+                                    if (maxEntryBytes - entryBytes < 1L ||
+                                        maxTotalBytes - bytesWritten < 1L
+                                    ) {
+                                        throw ExtractionBlocked("actual archive byte limit exceeded")
+                                    }
+                                    output.write(one)
+                                    entryBytes += 1L
+                                    bytesWritten += 1L
+                                    continue
+                                }
                                 val chunk = count.toLong()
                                 if (chunk > maxEntryBytes - entryBytes) {
                                     throw ExtractionBlocked("actual entry bytes exceed configured limit")
@@ -111,7 +123,7 @@ class RuntimeArchiveExtractor(
                             }
                         }
                     }
-                    filesWritten++
+                        filesWritten++
                     }
                 }
             }
