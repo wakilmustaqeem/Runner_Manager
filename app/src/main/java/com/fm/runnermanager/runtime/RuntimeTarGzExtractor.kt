@@ -186,8 +186,8 @@ class RuntimeTarGzExtractor(
      * such as /usr/bin/env would point outside the staged runtime on Android.
      */
     private fun resolveSymlinkTarget(entryPath: String, rawTarget: String): Path {
-        if (rawTarget.isEmpty() || rawTarget.any { it == '\\u0000' || it.code < 0x20 } ||
-            '\\\\' in rawTarget
+        if (rawTarget.isEmpty() || rawTarget.any { it == '\u0000' || it.code < 0x20 } ||
+            '\\' in rawTarget
         ) {
             throw IOException("Invalid symbolic-link target")
         }
