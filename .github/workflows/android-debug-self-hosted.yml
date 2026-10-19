@@ -26,7 +26,7 @@ jobs:
       - android
       - android-api-33
       - arm64
-      - soc-spreadtrum-t820-ums9620_2h10-unisoc-t820
+      - soc-spreadtrum-t820-ums9620-2h10-unisoc-t820
     timeout-minutes: 30
     steps:
       - name: Checkout approved branch
