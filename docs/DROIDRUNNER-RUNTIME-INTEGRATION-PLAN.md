@@ -27,7 +27,7 @@ If the existing FM Runner Manager OAuth App must be retained instead, pause the 
 
 ## Integration path
 
-1. A separate `GitHubAppDeviceFlowClient` now implements device-code request, token polling, refresh-token exchange, and identity lookup without requesting the classic OAuth `repo` scope. It is intentionally isolated and not wired to the current UI; validate it with the actual dedicated GitHub App before switching login paths.
+1. `GitHubAppDeviceFlowClient` is wired to a separate `Connect GitHub App (installation-scoped)` UI path. It requests `offline_access` without classic OAuth `repo`, polls device authorization including `slow_down`, lists installations, lets the user select one, and loads only that installation's repositories. The token is memory-only. This path has not been built or device-tested; refresh-token renewal, encrypted token storage, and workflow/runner metadata endpoints are still not wired.
 2. Preserve the existing FM dashboard and account separation, but replace the incorrect OAuth-scope assumption with an explicit GitHub App authentication/installation model.
 3. Port or adapt the upstream GitHub App API, token/session handling, and repository target picker with attribution and licence notices.
 4. Port the runtime installer only with signed manifest verification, archive digest verification, and a pinned/verified runtime source. Never download and execute an unverified bundle.
