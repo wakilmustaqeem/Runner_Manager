@@ -37,6 +37,16 @@ class RuntimeTarGzExtractorTest {
     }
 
     @Test
+    fun mapsAbsoluteGuestSymlinkToRelativeTargetInsideStagedRootfs() {
+        withArchive(listOf(Entry.symlink("rootfs/usr/local/bin/tool", "/usr/bin/tool-real"))) { archive, root ->
+            RuntimeTarGzExtractor().extract(archive, root)
+            val link = File(root, "rootfs/usr/local/bin/tool").toPath()
+            assertTrue(Files.isSymbolicLink(link))
+            assertEquals("../../bin/tool-real", Files.readSymbolicLink(link).toString())
+        }
+    }
+
+    @Test
     fun rejectsRelativeSymlinkThatEscapesArchiveRoot() {
         withArchive(listOf(Entry.symlink("rootfs/etc/bad", "../../../../outside"))) { archive, root ->
             try {
