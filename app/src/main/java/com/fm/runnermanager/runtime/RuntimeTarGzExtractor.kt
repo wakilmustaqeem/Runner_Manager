@@ -137,8 +137,10 @@ class RuntimeTarGzExtractor(
                                         }
                                         if (entryBytes != declaredSize) throw IOException("TAR entry size mismatch")
                                     }
-                                    if (entry.mode and 0b001001001 != 0) {
-                                        destination.toFile().setExecutable(true, false)
+                                    if (entry.mode and 0b001001001 != 0 &&
+                                        !destination.toFile().setExecutable(true, false)
+                                    ) {
+                                        throw IOException("Could not preserve executable permission")
                                     }
                                     filesWritten++
                                 }
