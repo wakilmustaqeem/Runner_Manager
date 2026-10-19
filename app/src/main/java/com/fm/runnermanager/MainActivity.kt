@@ -33,6 +33,8 @@ import android.widget.Toast
 import com.fm.runnermanager.adapters.GitHubDeviceFlowClient
 import com.fm.runnermanager.adapters.GitHubAppDeviceFlowClient
 import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -64,6 +66,9 @@ class MainActivity : Activity() {
     private var repoSpinner: Spinner? = null
     private var githubAccountSpinner: Spinner? = null
     private val githubExecutor = Executors.newSingleThreadExecutor()
+    // Generation guards prevent late device-flow results from reconnecting a removed/cancelled slot.
+    private val githubAppAuthSequence = AtomicLong(0L)
+    private val githubAppAuthGenerationBySlot = ConcurrentHashMap<Int, Long>()
     private val githubTokensBySlot = mutableMapOf<Int, String>()
     private val githubAppSlots = mutableSetOf<Int>()
     private val githubAppInstallationIdsBySlot = mutableMapOf<Int, Long>()
@@ -373,6 +378,7 @@ class MainActivity : Activity() {
             .setMessage("This clears the account's in-memory token, repository list and local label from this app. It does not revoke authorization at GitHub; revoke the app in GitHub settings if needed.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Remove") { _, _ ->
+                githubAppAuthGenerationBySlot.remove(id)
                 githubTokensBySlot.remove(id)
                 githubAppSlots.remove(id)
                 githubAppInstallationIdsBySlot.remove(id)
@@ -464,23 +470,26 @@ class MainActivity : Activity() {
     }
 
     private fun startGitHubAppDeviceFlow(slot: Int, clientId: String) {
+        val generation = githubAppAuthSequence.incrementAndGet()
+        githubAppAuthGenerationBySlot[slot] = generation
         if (selectedAccount == slot) githubStatusLabel?.text = "GitHub App: Requesting device authorization…"
         githubExecutor.execute {
             try {
                 val client = GitHubAppDeviceFlowClient(clientId)
                 val device = client.requestDeviceCode()
                 runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (isFinishing || isDestroyed || !isCurrentGitHubAppAuth(slot, generation)) return@runOnUiThread
                     AlertDialog.Builder(this).setTitle("Authorize GitHub App • Account " + slot)
                         .setMessage("Open " + device.verificationUri + "\nEnter one-time code:\n" + device.userCode + "\n\nApprove only the intended GitHub account.")
                         .setPositiveButton("Open page & wait") { _, _ ->
                             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(device.verificationUri))) } catch (_: Exception) { }
-                            pollGitHubAppDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot, clientId)
+                            pollGitHubAppDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot, clientId, generation)
                         }
                         .setNeutralButton("I've opened it") { _, _ ->
-                            pollGitHubAppDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot, clientId)
+                            pollGitHubAppDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot, clientId, generation)
                         }
                         .setNegativeButton("Cancel") { _, _ ->
+                            githubAppAuthGenerationBySlot.remove(slot, generation)
                             if (selectedAccount == slot) githubStatusLabel?.text = "GitHub App: Authorization cancelled"
                             recordActivity("github_app_device_authorization_cancelled", "CANCELLED", slot)
                             logAudit("github_app_device_authorization_cancelled")
@@ -497,14 +506,14 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun pollGitHubAppDeviceFlow(client: GitHubAppDeviceFlowClient, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int, clientId: String) {
+    private fun pollGitHubAppDeviceFlow(client: GitHubAppDeviceFlowClient, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int, clientId: String, generation: Long) {
         if (selectedAccount == slot) githubStatusLabel?.text = "GitHub App: Waiting for browser approval…"
         githubExecutor.execute {
             val deadline = System.currentTimeMillis() + expiresIn.coerceAtLeast(1L) * 1000L
             var interval = initialInterval.coerceAtLeast(1L)
             try {
                 var authorized: GitHubAppDeviceFlowClient.UserToken? = null
-                while (!Thread.currentThread().isInterrupted && System.currentTimeMillis() < deadline) {
+                while (!Thread.currentThread().isInterrupted && isCurrentGitHubAppAuth(slot, generation) && System.currentTimeMillis() < deadline) {
                     Thread.sleep(interval * 1000L)
                     val result = client.pollDeviceToken(deviceCode)
                     if (result.token != null) { authorized = result.token; break }
@@ -518,18 +527,21 @@ class MainActivity : Activity() {
                     }
                     if (result.intervalSeconds != null) interval = maxOf(interval, result.intervalSeconds)
                 }
+                if (!isCurrentGitHubAppAuth(slot, generation)) return@execute
                 val token = authorized?.accessToken ?: throw IllegalStateException("Device authorization timed out")
                 val identity = client.identity(token)
                 val installations = client.installations(token)
+                if (!isCurrentGitHubAppAuth(slot, generation)) return@execute
                 if (installations.isEmpty()) throw IllegalStateException("No installation of this GitHub App is available to this account")
                 runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (isFinishing || isDestroyed || !isCurrentGitHubAppAuth(slot, generation)) return@runOnUiThread
                     val labels = installations.map { "${it.account} • ${it.accountType} • ${it.repositorySelection} repos" }.toTypedArray()
                     AlertDialog.Builder(this).setTitle("Select GitHub App installation")
                         .setItems(labels) { _, which ->
-                            if (which in installations.indices) loadGitHubAppInstallation(client, token, identity.login, installations[which], slot, clientId)
+                            if (which in installations.indices && isCurrentGitHubAppAuth(slot, generation)) loadGitHubAppInstallation(client, token, identity.login, installations[which], slot, clientId, generation)
                         }
                         .setOnCancelListener {
+                            githubAppAuthGenerationBySlot.remove(slot, generation)
                             if (selectedAccount == slot) githubStatusLabel?.text = "GitHub App: Installation selection cancelled"
                             recordActivity("github_app_installation_selection_cancelled", "CANCELLED", slot)
                         }.show()
@@ -538,7 +550,7 @@ class MainActivity : Activity() {
                 Thread.currentThread().interrupt()
             } catch (_: Exception) {
                 runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (isFinishing || isDestroyed || !isCurrentGitHubAppAuth(slot, generation)) return@runOnUiThread
                     if (selectedAccount == slot) githubStatusLabel?.text = "GitHub App: Not connected"
                     Toast.makeText(this, "GitHub App authorization failed, expired, or has no accessible installation.", Toast.LENGTH_LONG).show()
                     recordActivity("github_app_device_authorization_failed", "FAILED", slot)
@@ -548,14 +560,15 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun loadGitHubAppInstallation(client: GitHubAppDeviceFlowClient, token: String, login: String, installation: GitHubAppDeviceFlowClient.Installation, slot: Int, clientId: String) {
+    private fun loadGitHubAppInstallation(client: GitHubAppDeviceFlowClient, token: String, login: String, installation: GitHubAppDeviceFlowClient.Installation, slot: Int, clientId: String, generation: Long) {
         githubExecutor.execute {
             try {
+                if (!isCurrentGitHubAppAuth(slot, generation)) return@execute
                 val repos = client.installationRepositories(token, installation.id).map {
                     GitHubDeviceFlowClient.Repository(it.owner, it.name, it.isPrivate, it.htmlUrl)
                 }
                 runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (isFinishing || isDestroyed || !isCurrentGitHubAppAuth(slot, generation)) return@runOnUiThread
                     githubTokensBySlot[slot] = token
                     githubClientIds[slot] = clientId
                     githubAppSlots.add(slot)
@@ -574,6 +587,7 @@ class MainActivity : Activity() {
                 }
             } catch (_: Exception) {
                 runOnUiThread {
+                    if (isFinishing || isDestroyed || !isCurrentGitHubAppAuth(slot, generation)) return@runOnUiThread
                     if (selectedAccount == slot) githubStatusLabel?.text = "GitHub App: Repository load failed"
                     Toast.makeText(this, "Could not list repositories for this installation. Verify App permissions and installation access.", Toast.LENGTH_LONG).show()
                     recordActivity("github_app_installation_repositories_failed", "FAILED", slot)
@@ -582,6 +596,9 @@ class MainActivity : Activity() {
             }
         }
     }
+
+    private fun isCurrentGitHubAppAuth(slot: Int, generation: Long): Boolean =
+        githubAppAuthGenerationBySlot[slot] == generation && accountIds().contains(slot)
 
     private fun confirmRepositoryAccess(slot: Int, clientId: String) {
         AlertDialog.Builder(this)
