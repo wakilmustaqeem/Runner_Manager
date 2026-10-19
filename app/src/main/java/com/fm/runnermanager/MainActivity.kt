@@ -399,8 +399,10 @@ class MainActivity : Activity() {
 
     private fun updateGitHubConnectionLabel() {
         val login = githubLoginsBySlot[selectedAccount]
+        val repos = githubReposBySlot[selectedAccount].orEmpty()
+        val privateCount = repos.count { it.isPrivate }
         githubStatusLabel?.text = if (githubTokensBySlot.containsKey(selectedAccount) && login != null)
-            "GitHub connection: " + login + " • private repo access"
+            "GitHub: " + login + " • private repo access • " + privateCount + " private / " + repos.size + " total"
         else "GitHub connection: Not connected"
     }
 
@@ -503,7 +505,12 @@ class MainActivity : Activity() {
                             }
                             recordActivity("github_account_connected_repo_scope", "SUCCESS", slot)
                             logAudit("github_account_connected_repo_scope")
-                            Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Token remains memory-only.", Toast.LENGTH_LONG).show()
+                            val privateCount = repos.count { it.isPrivate }
+                            val resultMessage = if (privateCount == 0)
+                                "Connected " + identity.login + "; loaded " + repos.size + " repositories but none are marked private. If expected private repos are missing, verify OAuth repo scope and approve the updated authorization."
+                            else
+                                "Connected " + identity.login + "; loaded " + repos.size + " repositories including " + privateCount + " private. Token remains memory-only."
+                            Toast.makeText(this, resultMessage, Toast.LENGTH_LONG).show()
                         }
                         return@execute
                     }
