@@ -72,6 +72,8 @@ class MainActivity : Activity() {
     // Generation guards prevent late device-flow results from reconnecting a removed/cancelled slot.
     private val githubAppAuthSequence = AtomicLong(0L)
     private val githubAppAuthGenerationBySlot = ConcurrentHashMap<Int, Long>()
+    private val githubClassicAuthSequence = AtomicLong(0L)
+    private val githubClassicAuthGenerationBySlot = ConcurrentHashMap<Int, Long>()
     private val githubTokensBySlot = mutableMapOf<Int, String>()
     private val githubAppSlots = mutableSetOf<Int>()
     private val githubAppInstallationIdsBySlot = mutableMapOf<Int, Long>()
@@ -383,6 +385,7 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Remove") { _, _ ->
                 githubAppAuthGenerationBySlot.remove(id)
+                githubClassicAuthGenerationBySlot.remove(id)
                 githubAppTokenVault.remove(id)
                 githubAppSessionPreferences.edit().remove("installation_id_$id").apply()
                 githubTokensBySlot.remove(id)
@@ -685,6 +688,9 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun isCurrentGitHubClassicAuth(slot: Int, generation: Long): Boolean =
+        githubClassicAuthGenerationBySlot[slot] == generation && accountIds().contains(slot)
+
     private fun isCurrentGitHubAppAuth(slot: Int, generation: Long): Boolean =
         githubAppAuthGenerationBySlot[slot] == generation && accountIds().contains(slot)
 
@@ -698,29 +704,43 @@ class MainActivity : Activity() {
     }
 
     private fun startDeviceFlow(slot: Int, clientId: String) {
-        githubStatusLabel?.text = "GitHub connection: Requesting device authorization…"
+        val generation = githubClassicAuthSequence.incrementAndGet()
+        githubClassicAuthGenerationBySlot[slot] = generation
+        if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Requesting device authorization…"
         githubExecutor.execute {
             try {
                 val client = GitHubDeviceFlowClient(clientId)
                 val device = client.requestDeviceCode()
                 runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (isFinishing || isDestroyed || !isCurrentGitHubClassicAuth(slot, generation)) return@runOnUiThread
                     AlertDialog.Builder(this)
                         .setTitle("Authorize GitHub account " + slot)
                         .setMessage("Open " + device.verificationUri + "\nEnter one-time code:\n" + device.userCode + "\n\nApprove only the intended GitHub account.")
                         .setPositiveButton("Open page & wait") { _, _ ->
                             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(device.verificationUri))) } catch (_: Exception) { }
-                            pollDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot)
+                            showGitHubClassicPollingDialog(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot, generation)
                         }
-                        .setNeutralButton("I've opened it") { _, _ -> pollDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot) }
+                        .setNeutralButton("I've opened it") { _, _ ->
+                            showGitHubClassicPollingDialog(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot, generation)
+                        }
                         .setNegativeButton("Cancel") { _, _ ->
-                            githubStatusLabel?.text = "GitHub connection: Authorization cancelled"
+                            githubClassicAuthGenerationBySlot.remove(slot, generation)
+                            if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Authorization cancelled"
                             recordActivity("github_device_authorization_cancelled", "CANCELLED", slot)
-                        }.show()
+                            logAudit("github_device_authorization_cancelled")
+                        }
+                        .setOnCancelListener {
+                            githubClassicAuthGenerationBySlot.remove(slot, generation)
+                            if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Authorization cancelled"
+                            recordActivity("github_device_authorization_cancelled", "CANCELLED", slot)
+                            logAudit("github_device_authorization_cancelled")
+                        }
+                        .show()
                 }
             } catch (_: Exception) {
                 runOnUiThread {
-                    githubStatusLabel?.text = "GitHub connection: Authorization request failed"
+                    if (isFinishing || isDestroyed || !isCurrentGitHubClassicAuth(slot, generation)) return@runOnUiThread
+                    if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Authorization request failed"
                     Toast.makeText(this, "Check Client ID, Device Flow settings, and network.", Toast.LENGTH_LONG).show()
                     recordActivity("github_device_authorization_failed", "FAILED", slot)
                     logAudit("github_device_authorization_failed")
@@ -729,21 +749,70 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun pollDeviceFlow(client: GitHubDeviceFlowClient, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int) {
-        githubStatusLabel?.text = "GitHub connection: Waiting for browser approval…"
+    private fun showGitHubClassicPollingDialog(client: GitHubDeviceFlowClient, deviceCode: String, expiresIn: Long, interval: Long, slot: Int, generation: Long) {
+        if (!isCurrentGitHubClassicAuth(slot, generation)) return
+        val waitingDialog = AlertDialog.Builder(this)
+            .setTitle("Waiting for GitHub approval")
+            .setMessage("Finish approving the one-time code in your browser. Cancel stops this connection attempt; late results will be discarded.")
+            .setNegativeButton("Cancel") { _, _ ->
+                githubClassicAuthGenerationBySlot.remove(slot, generation)
+                if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Authorization cancelled"
+                recordActivity("github_device_authorization_cancelled", "CANCELLED", slot)
+                logAudit("github_device_authorization_cancelled")
+            }
+            .create()
+        waitingDialog.setCancelable(false)
+        waitingDialog.show()
+        pollDeviceFlow(client, deviceCode, expiresIn, interval, slot, generation, waitingDialog)
+    }
+
+    private fun dismissClassicPollingDialog(dialog: AlertDialog) {
+        runOnUiThread {
+            if (!isFinishing && !isDestroyed && dialog.isShowing) dialog.dismiss()
+        }
+    }
+
+    private fun pollDeviceFlow(client: GitHubDeviceFlowClient, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int, generation: Long, waitingDialog: AlertDialog) {
+        if (!isCurrentGitHubClassicAuth(slot, generation)) {
+            dismissClassicPollingDialog(waitingDialog)
+            return
+        }
+        if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Waiting for browser approval…"
         githubExecutor.execute {
             val deadline = System.currentTimeMillis() + expiresIn.coerceAtLeast(1L) * 1000L
             var interval = initialInterval.coerceAtLeast(1L)
             try {
-                while (!Thread.currentThread().isInterrupted && System.currentTimeMillis() < deadline) {
+                while (!Thread.currentThread().isInterrupted &&
+                    isCurrentGitHubClassicAuth(slot, generation) &&
+                    System.currentTimeMillis() < deadline) {
                     Thread.sleep(interval * 1000L)
+                    if (!isCurrentGitHubClassicAuth(slot, generation)) {
+                        dismissClassicPollingDialog(waitingDialog)
+                        return@execute
+                    }
                     val result = client.pollDeviceToken(deviceCode)
+                    if (!isCurrentGitHubClassicAuth(slot, generation)) {
+                        dismissClassicPollingDialog(waitingDialog)
+                        return@execute
+                    }
                     val token = result.accessToken
                     if (!token.isNullOrBlank()) {
                         val identity = client.identity(token)
+                        if (!isCurrentGitHubClassicAuth(slot, generation)) {
+                            dismissClassicPollingDialog(waitingDialog)
+                            return@execute
+                        }
                         val repos = client.repositories(token)
+                        if (!isCurrentGitHubClassicAuth(slot, generation)) {
+                            dismissClassicPollingDialog(waitingDialog)
+                            return@execute
+                        }
                         runOnUiThread {
-                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            if (isFinishing || isDestroyed || !isCurrentGitHubClassicAuth(slot, generation)) {
+                                if (waitingDialog.isShowing) waitingDialog.dismiss()
+                                return@runOnUiThread
+                            }
+                            if (waitingDialog.isShowing) waitingDialog.dismiss()
                             githubAppSlots.remove(slot)
                             githubAppInstallationIdsBySlot.remove(slot)
                             githubTokensBySlot[slot] = token
@@ -775,12 +844,21 @@ class MainActivity : Activity() {
                     }
                     if (result.intervalSeconds != null) interval = maxOf(interval, result.intervalSeconds)
                 }
+                if (!isCurrentGitHubClassicAuth(slot, generation)) {
+                    dismissClassicPollingDialog(waitingDialog)
+                    return@execute
+                }
                 throw IllegalStateException("Device authorization timed out")
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
+                dismissClassicPollingDialog(waitingDialog)
             } catch (_: Exception) {
                 runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    if (isFinishing || isDestroyed || !isCurrentGitHubClassicAuth(slot, generation)) {
+                        if (waitingDialog.isShowing) waitingDialog.dismiss()
+                        return@runOnUiThread
+                    }
+                    if (waitingDialog.isShowing) waitingDialog.dismiss()
                     if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Not connected"
                     Toast.makeText(this, "Authorization failed or timed out. Verify app configuration and retry.", Toast.LENGTH_LONG).show()
                     recordActivity("github_device_authorization_failed", "FAILED", slot)
