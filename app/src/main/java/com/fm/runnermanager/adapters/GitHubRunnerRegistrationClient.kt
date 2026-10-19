@@ -49,7 +49,6 @@ class GitHubRunnerRegistrationClient(
             setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
             setRequestProperty("User-Agent", "FM-Runner-Manager-Android")
             setRequestProperty("Authorization", "Bearer $accessToken")
-            setRequestProperty("Content-Length", "0")
         }
 
         try {
