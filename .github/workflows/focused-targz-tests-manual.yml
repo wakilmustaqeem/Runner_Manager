@@ -1,0 +1,42 @@
+name: Focused TAR.GZ Runtime Tests (Manual, Offline)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-manager-focused-targz-tests
+  cancel-in-progress: false
+
+jobs:
+  targz-tests:
+    name: TAR.GZ extractor unit tests (cached toolchain only)
+    runs-on: [self-hosted, android, android-api-33, arm64]
+    timeout-minutes: 12
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+
+      - name: Verify preinstalled toolchain without installing anything
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ "$(uname -m)" = "aarch64" ] || { echo "Expected ARM64 runner; no tools were installed."; exit 1; }
+          java -version
+          command -v gradle || { echo "Gradle is not preinstalled; refusing to download it."; exit 2; }
+          [ -n "${ANDROID_HOME:-}" ] || [ -n "${ANDROID_SDK_ROOT:-}" ] || { echo "Android SDK environment is missing; refusing to install it."; exit 2; }
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT}}"
+          [ -d "$sdk/platforms/android-35" ] || { echo "Android SDK platform 35 is missing; refusing to install it."; exit 2; }
+          [ -x "$sdk/build-tools/35.0.1/aapt2" ] || { echo "Expected ARM64 aapt2 is missing; refusing to install it."; exit 2; }
+          echo "Toolchain preflight passed; Gradle will run in offline mode."
+
+      - name: Run unit tests using cached dependencies only
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT}}"
+          gradle --offline --no-daemon \
+            "-Pandroid.aapt2FromMavenOverride=$sdk/build-tools/35.0.1/aapt2" \
+            testDebugUnitTest
