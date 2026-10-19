@@ -210,7 +210,7 @@ class MainActivity : Activity() {
         runnerPanel.addView(githubStatusLabel!!)
         runnerPanel.addView(text("Runner status: Read-only metadata only; Start/Stop disabled", 13f, muted, false).apply { setPadding(0, dp(5), 0, 0) })
         runnerPanel.addView(Button(this).apply {
-            text = "Connect GitHub (read-only)"
+            text = "Connect GitHub (private repo access)"
             setOnClickListener { beginGitHubConnection() }
         }, marginParams(bottom = 6))
         runnerPanel.addView(Button(this).apply {
@@ -400,7 +400,7 @@ class MainActivity : Activity() {
     private fun updateGitHubConnectionLabel() {
         val login = githubLoginsBySlot[selectedAccount]
         githubStatusLabel?.text = if (githubTokensBySlot.containsKey(selectedAccount) && login != null)
-            "GitHub connection: " + login + " • read-only"
+            "GitHub connection: " + login + " • private repo access"
         else "GitHub connection: Not connected"
     }
 
@@ -410,7 +410,7 @@ class MainActivity : Activity() {
         if (configuredClientId.isNotBlank()) {
             // Public app builds carry their own public Client ID; users never enter it.
             githubClientIds[slot] = configuredClientId
-            startDeviceFlow(slot, configuredClientId)
+            confirmRepositoryAccess(slot, configuredClientId)
             return
         }
 
@@ -431,9 +431,18 @@ class MainActivity : Activity() {
                     Toast.makeText(this, "Configure the GitHub App Client ID in this build.", Toast.LENGTH_LONG).show()
                 } else {
                     githubClientIds[slot] = clientId
-                    startDeviceFlow(slot, clientId)
+                    confirmRepositoryAccess(slot, clientId)
                 }
             }.show()
+    }
+
+    private fun confirmRepositoryAccess(slot: Int, clientId: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Private repository access")
+            .setMessage("To list private repositories with this OAuth App, FM Runner Manager requests GitHub's broad repo scope. GitHub grants this scope access to private repositories and may permit write operations; it is NOT read-only. Continue only if you trust this app and accept that scope. This metadata screen will not make repository changes.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Continue to GitHub") { _, _ -> startDeviceFlow(slot, clientId) }
+            .show()
     }
 
     private fun startDeviceFlow(slot: Int, clientId: String) {
@@ -489,11 +498,11 @@ class MainActivity : Activity() {
                             githubAccountSpinner?.adapter = neonAdapter(accountLabels())
                             githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
                             if (selectedAccount == slot) {
-                                githubStatusLabel?.text = "GitHub connection: " + identity.login + " • read-only"
+                                githubStatusLabel?.text = "GitHub connection: " + identity.login + " • private repo access"
                                 updateRepositorySpinner()
                             }
-                            recordActivity("github_account_connected_readonly", "SUCCESS", slot)
-                            logAudit("github_account_connected_readonly")
+                            recordActivity("github_account_connected_repo_scope", "SUCCESS", slot)
+                            logAudit("github_account_connected_repo_scope")
                             Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Token remains memory-only.", Toast.LENGTH_LONG).show()
                         }
                         return@execute
