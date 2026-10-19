@@ -2,6 +2,9 @@ name: Focused TAR.GZ Runtime Tests (Manual, Offline)
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feat/manual-focused-targz-tests-2026-10-19
 
 permissions:
   contents: read
