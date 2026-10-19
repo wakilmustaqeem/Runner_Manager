@@ -676,6 +676,7 @@ class MainActivity : Activity() {
     }
 
     private fun startDeviceFlow(slot: Int, clientId: String) {
+        val generation = authGeneration(slot).get()
         githubStatusLabel?.apply { text = "🟡 CONNECTING • Requesting GitHub authorization…"; setTextColor(0xFFFFD166.toInt()) }
         githubExecutor.execute {
             try {
@@ -688,9 +689,9 @@ class MainActivity : Activity() {
                         .setMessage("Open " + device.verificationUri + "\nEnter one-time code:\n" + device.userCode + "\n\nApprove only the intended GitHub account.")
                         .setPositiveButton("Open page & wait") { _, _ ->
                             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(device.verificationUri))) } catch (_: Exception) { }
-                            pollDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot)
+                            pollDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot, generation)
                         }
-                        .setNeutralButton("I've opened it") { _, _ -> pollDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot) }
+                        .setNeutralButton("I've opened it") { _, _ -> pollDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot, generation) }
                         .setNegativeButton("Cancel") { _, _ ->
                             githubStatusLabel?.apply { text = "🔴 DISCONNECTED • Authorization cancelled"; setTextColor(0xFFFF6B6B.toInt()) }
                             recordActivity("github_device_authorization_cancelled", "CANCELLED", slot)
@@ -707,7 +708,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun pollDeviceFlow(client: GitHubDeviceFlowClient, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int) {
+    private fun pollDeviceFlow(client: GitHubDeviceFlowClient, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int, generation: Long) {
         runOnUiThread { if (selectedAccount == slot) githubStatusLabel?.apply { text = "🟡 CONNECTING • Waiting for browser approval…"; setTextColor(0xFFFFD166.toInt()) } }
         githubExecutor.execute {
             val deadline = System.currentTimeMillis() + expiresIn.coerceAtLeast(1L) * 1000L
@@ -720,11 +721,12 @@ class MainActivity : Activity() {
                     if (!token.isNullOrBlank()) {
                         val identity = client.identity(token)
                         val repos = client.repositories(token)
+                        if (!isCurrentGitHubAuth(slot, generation)) return@execute
                         runOnUiThread {
-                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            if (isFinishing || isDestroyed || !isCurrentGitHubAuth(slot, generation)) return@runOnUiThread
                             try {
                                 synchronized(sessionLock(slot)) {
-                                    val generation = authGeneration(slot).get()
+                                    if (!isCurrentGitHubAuth(slot, generation)) throw IllegalStateException("Session changed during authorization")
                                     tokenVault.save(slot, token)
                                     result.refreshToken?.let { tokenVault.saveRefreshToken(slot, it) }
                                     val expiry = result.expiresInSeconds?.let { System.currentTimeMillis() + it * 1000L } ?: 0L
