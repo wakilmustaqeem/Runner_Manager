@@ -30,6 +30,19 @@ class RunnerControlReadinessTest {
         val result = RunnerControlReadiness.evaluate(allReady.copy(accountIdentityVerified = false))
         assertFalse(result.canRegister)
         assertFalse(result.canStart)
+        assertTrue(result.registerBlockers.contains("GitHub account identity is not verified"))
+    }
+
+    @Test
+    fun registrationBlockersDoNotIncludeServiceOrOnlineState() {
+        val result = RunnerControlReadiness.evaluate(
+            allReady.copy(serviceConnected = false, processAlive = false, githubRunnerOnline = false)
+        )
+        assertTrue(result.canRegister)
+        assertTrue(result.registerBlockers.isEmpty())
+        assertFalse(result.startBlockers.isEmpty())
+        assertFalse(result.stopBlockers.isEmpty())
+        assertFalse(result.onlineBlockers.isEmpty())
     }
 
     @Test
