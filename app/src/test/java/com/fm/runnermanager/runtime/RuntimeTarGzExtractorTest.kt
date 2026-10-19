@@ -89,6 +89,21 @@ class RuntimeTarGzExtractorTest {
     }
 
     @Test
+    fun rejectsArchiveEntriesThatTraverseAnEarlierSymlink() {
+        withArchive(listOf(
+            Entry.symlink("rootfs/usr/link", "/etc"),
+            Entry.file("rootfs/usr/link/passwd", "blocked".toByteArray())
+        )) { archive, root ->
+            try {
+                RuntimeTarGzExtractor().extract(archive, root)
+                throw AssertionError("Entry beneath a symlink should be blocked")
+            } catch (_: IOException) {
+                assertTrue(root.listFiles().orEmpty().isEmpty())
+            }
+        }
+    }
+
+    @Test
     fun rejectsHardLinks() {
         withArchive(listOf(Entry.hardlink("rootfs/hard", "rootfs/target"))) { archive, root ->
             try {
