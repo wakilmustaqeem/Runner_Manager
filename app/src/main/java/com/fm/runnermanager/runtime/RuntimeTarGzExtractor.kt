@@ -144,11 +144,11 @@ class RuntimeTarGzExtractor(
                                 }
                                 Kind.SYMLINK -> {
                                     val target = entry.linkName
-                                    validateSymlinkTarget(normalized, target)
+                                    val safeTarget = resolveSymlinkTarget(normalized, target)
                                     if (Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) {
                                         throw IOException("Symbolic link conflicts with existing path")
                                     }
-                                    Files.createSymbolicLink(destination, Paths.get(target))
+                                    Files.createSymbolicLink(destination, safeTarget)
                                     created += destination
                                 }
                             }
@@ -180,19 +180,35 @@ class RuntimeTarGzExtractor(
         }
     }
 
-    private fun validateSymlinkTarget(entryPath: String, target: String) {
-        if (target.isEmpty() || target.any { it == '\u0000' || it.code < 0x20 }) {
+    /**
+     * Map Linux absolute symlinks inside the runtime rootfs to relative links
+     * that remain inside the staged rootfs. Creating a host-absolute symlink
+     * such as /usr/bin/env would point outside the staged runtime on Android.
+     */
+    private fun resolveSymlinkTarget(entryPath: String, rawTarget: String): Path {
+        if (rawTarget.isEmpty() || rawTarget.any { it == '\\u0000' || it.code < 0x20 } ||
+            '\\\\' in rawTarget
+        ) {
             throw IOException("Invalid symbolic-link target")
         }
-        // Absolute links are normal in a Linux rootfs and are resolved by PRoot
-        // inside the guest root. They are created without following them here.
-        // Relative links must remain within the extracted archive tree.
-        if (!target.startsWith('/')) {
-            val resolved = Paths.get(entryPath).parent.resolve(target).normalize()
-            if (resolved.startsWith("..") || resolved.toString() == "..") {
-                throw IOException("Relative symbolic link escapes the archive root")
-            }
+        val rootfs = Paths.get("rootfs")
+        val entry = Paths.get(entryPath)
+        if (!entry.startsWith(rootfs) || entry.nameCount < 2) {
+            throw IOException("Symbolic links are only allowed inside rootfs")
         }
+        val targetInsideRoot = if (rawTarget.startsWith('/')) {
+            val absoluteGuestTarget = rawTarget.removePrefix("/")
+            if (absoluteGuestTarget.split('/').any { it == ".." || it == "." }) {
+                throw IOException("Unsafe absolute guest symlink target")
+            }
+            rootfs.resolve(absoluteGuestTarget).normalize()
+        } else {
+            entry.parent.resolve(rawTarget).normalize()
+        }
+        if (!targetInsideRoot.startsWith(rootfs)) {
+            throw IOException("Symbolic link escapes staged rootfs")
+        }
+        return entry.parent.relativize(targetInsideRoot)
     }
 
     private fun ensureSafeParents(root: Path, parent: Path?, created: MutableList<Path>) {
