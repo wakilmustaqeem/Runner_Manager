@@ -531,6 +531,7 @@ class MainActivity : Activity() {
                 var authorized: GitHubAppDeviceFlowClient.UserToken? = null
                 while (!Thread.currentThread().isInterrupted && isCurrentGitHubAppAuth(slot, generation) && System.currentTimeMillis() < deadline) {
                     Thread.sleep(interval * 1000L)
+                    if (!isCurrentGitHubAppAuth(slot, generation)) return@execute
                     val result = client.pollDeviceToken(deviceCode)
                     if (result.token != null) { authorized = result.token; break }
                     when (result.error) {
