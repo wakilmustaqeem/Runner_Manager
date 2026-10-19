@@ -57,7 +57,11 @@ class GitHubAppDeviceFlowClient(
     fun requestDeviceCode(): DeviceCode {
         val json = postForm(
             "https://github.com/login/device/code",
-            mapOf("client_id" to clientId),
+            mapOf(
+                "client_id" to clientId,
+                // GitHub App only: requests rotating access/refresh tokens, not repository scopes.
+                "scope" to "offline_access"
+            ),
             acceptJson = true
         )
         return DeviceCode(
