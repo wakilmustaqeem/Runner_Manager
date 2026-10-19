@@ -525,13 +525,13 @@ class MainActivity : Activity() {
      * If refresh is unavailable, keep the current token and let GitHub verification decide.
      */
     private fun ensureUsableToken(client: GitHubDeviceFlowClient, slot: Int, currentToken: String): String {
+        val generation = authGeneration(slot).get()
         val expiresAt = sessionMetadataPreferences.getLong("access_expires_at_slot_" + slot, 0L)
         val refreshToken = tokenVault.loadRefreshToken(slot)
         val shouldRefresh = refreshToken != null &&
             (expiresAt > 0L && expiresAt <= System.currentTimeMillis() + 5 * 60 * 1000L)
         if (shouldRefresh) {
             try {
-                val generation = authGeneration(slot).get()
                 val refreshed = client.refreshUserToken(refreshToken!!)
                 synchronized(sessionLock(slot)) {
                     if (!isCurrentGitHubAuth(slot, generation)) {
@@ -556,7 +556,6 @@ class MainActivity : Activity() {
             currentToken
         } catch (firstFailure: Exception) {
             val savedRefresh = tokenVault.loadRefreshToken(slot) ?: throw firstFailure
-            val generation = authGeneration(slot).get()
             val refreshed = client.refreshUserToken(savedRefresh)
             synchronized(sessionLock(slot)) {
                 if (!isCurrentGitHubAuth(slot, generation)) {
