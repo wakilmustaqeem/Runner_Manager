@@ -524,7 +524,7 @@ class MainActivity : Activity() {
                 if (installations.isEmpty()) throw IllegalStateException("No installation of this GitHub App is available to this account")
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
-                    val labels = installations.map { "\${it.account} • \${it.accountType} • \${it.repositorySelection} repos" }.toTypedArray()
+                    val labels = installations.map { "${it.account} • ${it.accountType} • ${it.repositorySelection} repos" }.toTypedArray()
                     AlertDialog.Builder(this).setTitle("Select GitHub App installation")
                         .setItems(labels) { _, which ->
                             if (which in installations.indices) loadGitHubAppInstallation(client, token, identity.login, installations[which], slot, clientId)
@@ -566,11 +566,11 @@ class MainActivity : Activity() {
                     githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
                     if (selectedAccount == slot) {
                         updateRepositorySpinner()
-                        githubStatusLabel?.text = "GitHub App: $login • \${installation.account} • \${repos.size} installed repos"
+                        githubStatusLabel?.text = "GitHub App: $login • ${installation.account} • ${repos.size} installed repos"
                     }
                     recordActivity("github_app_installation_repositories_loaded", "SUCCESS", slot)
                     logAudit("github_app_installation_repositories_loaded")
-                    Toast.makeText(this, "GitHub App connected as $login. Loaded \${repos.size} installation-authorized repositories. Token remains memory-only; runner controls remain disabled.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "GitHub App connected as $login. Loaded ${repos.size} installation-authorized repositories. Token remains memory-only; runner controls remain disabled.", Toast.LENGTH_LONG).show()
                 }
             } catch (_: Exception) {
                 runOnUiThread {
