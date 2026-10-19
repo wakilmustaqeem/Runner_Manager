@@ -569,8 +569,8 @@ class MainActivity : Activity() {
                 Thread.currentThread().interrupt()
             } catch (_: Exception) {
                 runOnUiThread {
-                    waitingDialog.dismiss()
                     if (isFinishing || isDestroyed || !isCurrentGitHubAppAuth(slot, generation)) return@runOnUiThread
+                    waitingDialog.dismiss()
                     if (selectedAccount == slot) githubStatusLabel?.text = "GitHub App: Not connected"
                     Toast.makeText(this, "GitHub App authorization failed, expired, or has no accessible installation.", Toast.LENGTH_LONG).show()
                     recordActivity("github_app_device_authorization_failed", "FAILED", slot)
