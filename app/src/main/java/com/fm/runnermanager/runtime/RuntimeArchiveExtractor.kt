@@ -8,7 +8,6 @@
 package com.fm.runnermanager.runtime
 
 import java.io.File
-import java.io.FileInputStream
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -74,9 +73,7 @@ class RuntimeArchiveExtractor(
 
                     if (kind == RuntimeArchiveExtractionPolicy.EntryKind.DIRECTORY) {
                         createDirectoriesSafely(root, canonicalDestination, created)
-                        continue
-                    }
-
+                    } else {
                     val parent = canonicalDestination.parent
                         ?: throw ExtractionBlocked("archive file has no parent directory")
                     createDirectoriesSafely(root, parent, created)
@@ -115,6 +112,7 @@ class RuntimeArchiveExtractor(
                         }
                     }
                     filesWritten++
+                    }
                 }
             }
             return Result.Extracted(filesWritten, bytesWritten)
