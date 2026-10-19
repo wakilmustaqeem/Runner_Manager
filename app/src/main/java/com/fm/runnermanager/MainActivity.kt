@@ -31,7 +31,9 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.fm.runnermanager.adapters.GitHubDeviceFlowClient
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -65,6 +67,18 @@ class MainActivity : Activity() {
     private var repoSpinner: Spinner? = null
     private var activeAccountLabel: TextView? = null
     private val githubExecutor = Executors.newSingleThreadExecutor()
+    // Per-slot locks serialize credential persistence with disconnect/removal.
+    private val githubSessionLocks = ConcurrentHashMap<Int, Any>()
+    private val githubAuthGenerations = ConcurrentHashMap<Int, AtomicLong>()
+
+    private fun sessionLock(slot: Int): Any =
+        githubSessionLocks.computeIfAbsent(slot) { Any() }
+
+    private fun authGeneration(slot: Int): AtomicLong =
+        githubAuthGenerations.computeIfAbsent(slot) { AtomicLong(0L) }
+
+    private fun isCurrentGitHubAuth(slot: Int, generation: Long): Boolean =
+        authGeneration(slot).get() == generation
     private val githubTokensBySlot = mutableMapOf<Int, String>()
     private val githubReposBySlot = mutableMapOf<Int, List<GitHubDeviceFlowClient.Repository>>()
     private val githubClientIds = mutableMapOf<Int, String>()
@@ -410,9 +424,15 @@ class MainActivity : Activity() {
             updateGitHubConnectionLabel()
             return
         }
-        githubTokensBySlot.remove(slot)
-        tokenVault.remove(slot)
-        sessionMetadataPreferences.edit().remove("client_id_slot_" + slot).apply()
+        synchronized(sessionLock(slot)) {
+            authGeneration(slot).incrementAndGet()
+            githubTokensBySlot.remove(slot)
+            tokenVault.remove(slot)
+            sessionMetadataPreferences.edit()
+                .remove("client_id_slot_" + slot)
+                .remove("access_expires_at_slot_" + slot)
+                .commit()
+        }
         githubReposBySlot.remove(slot)
         githubClientIds.remove(slot)
         githubLoginsBySlot.remove(slot)
@@ -447,9 +467,15 @@ class MainActivity : Activity() {
             .setMessage("This clears the account's in-memory token, repository list and local label from this app. It does not revoke authorization at GitHub; revoke the app in GitHub settings if needed.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Remove") { _, _ ->
-                githubTokensBySlot.remove(id)
-                tokenVault.remove(id)
-                sessionMetadataPreferences.edit().remove("client_id_slot_" + id).apply()
+                synchronized(sessionLock(id)) {
+                    authGeneration(id).incrementAndGet()
+                    githubTokensBySlot.remove(id)
+                    tokenVault.remove(id)
+                    sessionMetadataPreferences.edit()
+                        .remove("client_id_slot_" + id)
+                        .remove("access_expires_at_slot_" + id)
+                        .commit()
+                }
                 githubReposBySlot.remove(id)
                 githubClientIds.remove(id)
                 githubLoginsBySlot.remove(id)
@@ -505,12 +531,18 @@ class MainActivity : Activity() {
             (expiresAt > 0L && expiresAt <= System.currentTimeMillis() + 5 * 60 * 1000L)
         if (shouldRefresh) {
             try {
+                val generation = authGeneration(slot).get()
                 val refreshed = client.refreshUserToken(refreshToken!!)
-                tokenVault.save(slot, refreshed.accessToken)
-                refreshed.refreshToken?.let { tokenVault.saveRefreshToken(slot, it) }
-                val expiry = refreshed.expiresInSeconds?.let { System.currentTimeMillis() + it * 1000L } ?: 0L
-                sessionMetadataPreferences.edit().putLong("access_expires_at_slot_" + slot, expiry).apply()
-                githubTokensBySlot[slot] = refreshed.accessToken
+                synchronized(sessionLock(slot)) {
+                    if (!isCurrentGitHubAuth(slot, generation)) {
+                        throw IllegalStateException("Session changed during token refresh")
+                    }
+                    tokenVault.save(slot, refreshed.accessToken)
+                    refreshed.refreshToken?.let { tokenVault.saveRefreshToken(slot, it) }
+                    val expiry = refreshed.expiresInSeconds?.let { System.currentTimeMillis() + it * 1000L } ?: 0L
+                    sessionMetadataPreferences.edit().putLong("access_expires_at_slot_" + slot, expiry).commit()
+                    githubTokensBySlot[slot] = refreshed.accessToken
+                }
                 recordActivity("github_access_token_refreshed", "SUCCESS", slot)
                 logAudit("github_access_token_refreshed")
                 return refreshed.accessToken
@@ -524,12 +556,18 @@ class MainActivity : Activity() {
             currentToken
         } catch (firstFailure: Exception) {
             val savedRefresh = tokenVault.loadRefreshToken(slot) ?: throw firstFailure
+            val generation = authGeneration(slot).get()
             val refreshed = client.refreshUserToken(savedRefresh)
-            tokenVault.save(slot, refreshed.accessToken)
-            refreshed.refreshToken?.let { tokenVault.saveRefreshToken(slot, it) }
-            val expiry = refreshed.expiresInSeconds?.let { System.currentTimeMillis() + it * 1000L } ?: 0L
-            sessionMetadataPreferences.edit().putLong("access_expires_at_slot_" + slot, expiry).apply()
-            githubTokensBySlot[slot] = refreshed.accessToken
+            synchronized(sessionLock(slot)) {
+                if (!isCurrentGitHubAuth(slot, generation)) {
+                    throw IllegalStateException("Session changed during token refresh")
+                }
+                tokenVault.save(slot, refreshed.accessToken)
+                refreshed.refreshToken?.let { tokenVault.saveRefreshToken(slot, it) }
+                val expiry = refreshed.expiresInSeconds?.let { System.currentTimeMillis() + it * 1000L } ?: 0L
+                sessionMetadataPreferences.edit().putLong("access_expires_at_slot_" + slot, expiry).commit()
+                githubTokensBySlot[slot] = refreshed.accessToken
+            }
             client.identity(refreshed.accessToken)
             recordActivity("github_access_token_refreshed_after_verification_failure", "SUCCESS", slot)
             logAudit("github_access_token_refreshed_after_verification_failure")
@@ -543,6 +581,7 @@ class MainActivity : Activity() {
      */
     private fun restorePersistedGitHubSessions() {
         for (slot in accountIds()) {
+            val generation = authGeneration(slot).get()
             if (!tokenVault.contains(slot)) continue
             val token = tokenVault.load(slot)
             if (token.isNullOrBlank()) {
@@ -568,10 +607,12 @@ class MainActivity : Activity() {
                     require(clientId.isNotBlank()) { "GitHub Client ID unavailable" }
                     val client = GitHubDeviceFlowClient(clientId)
                     val usableToken = ensureUsableToken(client, slot, token)
+                    if (!isCurrentGitHubAuth(slot, generation)) return@execute
                     val identity = client.identity(usableToken)
                     val repos = client.repositories(usableToken)
+                    if (!isCurrentGitHubAuth(slot, generation)) return@execute
                     runOnUiThread {
-                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        if (isFinishing || isDestroyed || !isCurrentGitHubAuth(slot, generation)) return@runOnUiThread
                         githubTokensBySlot[slot] = usableToken
                         githubLoginsBySlot[slot] = identity.login
                         githubReposBySlot[slot] = repos
@@ -682,16 +723,25 @@ class MainActivity : Activity() {
                         runOnUiThread {
                             if (isFinishing || isDestroyed) return@runOnUiThread
                             try {
-                                tokenVault.save(slot, token)
-                                result.refreshToken?.let { tokenVault.saveRefreshToken(slot, it) }
-                                val expiry = result.expiresInSeconds?.let { System.currentTimeMillis() + it * 1000L } ?: 0L
-                                sessionMetadataPreferences.edit()
-                                    .putString("client_id_slot_" + slot, githubClientIds[slot].orEmpty())
-                                    .putLong("access_expires_at_slot_" + slot, expiry)
-                                    .apply()
+                                synchronized(sessionLock(slot)) {
+                                    val generation = authGeneration(slot).get()
+                                    tokenVault.save(slot, token)
+                                    result.refreshToken?.let { tokenVault.saveRefreshToken(slot, it) }
+                                    val expiry = result.expiresInSeconds?.let { System.currentTimeMillis() + it * 1000L } ?: 0L
+                                    val persisted = sessionMetadataPreferences.edit()
+                                        .putString("client_id_slot_" + slot, githubClientIds[slot].orEmpty())
+                                        .putLong("access_expires_at_slot_" + slot, expiry)
+                                        .commit()
+                                    if (!persisted) throw IllegalStateException("Session metadata persistence failed")
+                                    if (!isCurrentGitHubAuth(slot, generation)) {
+                                        tokenVault.remove(slot)
+                                        throw IllegalStateException("Session changed while saving credentials")
+                                    }
+                                }
                             } catch (_: Exception) {
                                 recordActivity("github_session_secure_save_failed", "FAILED", slot)
                                 logAudit("github_session_secure_save_failed")
+                                return@runOnUiThread
                             }
                             githubTokensBySlot[slot] = token
                             githubReposBySlot[slot] = repos
