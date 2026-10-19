@@ -35,6 +35,25 @@ class RuntimeArchiveDigestVerifierTest {
     }
 
     @Test
+    fun makesProgressWhenStreamReturnsZeroForBulkRead() {
+        val zeroOnce = object : ByteArrayInputStream(archive) {
+            private var firstBulkRead = true
+
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (firstBulkRead) {
+                    firstBulkRead = false
+                    return 0
+                }
+                return super.read(b, off, len)
+            }
+        }
+        assertEquals(
+            RuntimeArchiveDigestVerifier.Result.Match,
+            RuntimeArchiveDigestVerifier.verify(zeroOnce, sha256(archive))
+        )
+    }
+
+    @Test
     fun rejectsMismatchingDigest() {
         assertEquals(
             RuntimeArchiveDigestVerifier.Result.Mismatch,
