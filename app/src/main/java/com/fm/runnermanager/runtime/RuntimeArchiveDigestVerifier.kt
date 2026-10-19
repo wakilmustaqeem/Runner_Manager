@@ -40,7 +40,14 @@ object RuntimeArchiveDigestVerifier {
             while (true) {
                 val count = archiveStream.read(buffer)
                 if (count < 0) break
-                if (count == 0) continue
+                if (count == 0) {
+                    // Some custom streams may return zero for a non-empty read.
+                    // Fall back to a single-byte read to guarantee progress or EOF.
+                    val singleByte = archiveStream.read()
+                    if (singleByte < 0) break
+                    digest.update(singleByte.toByte())
+                    continue
+                }
                 digest.update(buffer, 0, count)
             }
         } catch (e: IOException) {
