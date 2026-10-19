@@ -94,6 +94,24 @@ class RuntimeArchiveExtractorTest {
         }
     }
 
+    @Test
+    fun removesEarlierExtractedFilesWhenLaterEntryBreaksTotalBudget() {
+        val parent = Files.createTempDirectory("fm-extract-test").toFile()
+        val archive = File(parent, "runtime.zip")
+        val stage = File(parent, "stage").apply { mkdir() }
+        try {
+            writeZip(archive, listOf(
+                "first.bin" to ByteArray(6) { 1 },
+                "second.bin" to ByteArray(6) { 2 }
+            ))
+            val result = RuntimeArchiveExtractor(maxTotalBytes = 10).extract(archive, stage)
+            assertTrue(result is RuntimeArchiveExtractor.Result.Blocked)
+            assertTrue(stage.list().orEmpty().isEmpty())
+        } finally {
+            parent.deleteRecursively()
+        }
+    }
+
     private fun writeZip(file: File, entries: List<Pair<String, ByteArray>>) {
         ZipOutputStream(file.outputStream()).use { zip ->
             for ((name, bytes) in entries) {
