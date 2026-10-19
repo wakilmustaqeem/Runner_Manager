@@ -639,6 +639,8 @@ class MainActivity : Activity() {
                         val repos = client.repositories(token)
                         runOnUiThread {
                             if (isFinishing || isDestroyed) return@runOnUiThread
+                            githubAppSlots.remove(slot)
+                            githubAppInstallationIdsBySlot.remove(slot)
                             githubTokensBySlot[slot] = token
                             githubReposBySlot[slot] = repos
                             githubLoginsBySlot[slot] = identity.login
