@@ -483,10 +483,10 @@ class MainActivity : Activity() {
                         .setMessage("Open " + device.verificationUri + "\nEnter one-time code:\n" + device.userCode + "\n\nApprove only the intended GitHub account.")
                         .setPositiveButton("Open page & wait") { _, _ ->
                             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(device.verificationUri))) } catch (_: Exception) { }
-                            pollGitHubAppDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot, clientId, generation)
+                            showGitHubAppPollingDialog(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot, clientId, generation)
                         }
                         .setNeutralButton("I've opened it") { _, _ ->
-                            pollGitHubAppDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot, clientId, generation)
+                            showGitHubAppPollingDialog(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot, clientId, generation)
                         }
                         .setNegativeButton("Cancel") { _, _ ->
                             githubAppAuthGenerationBySlot.remove(slot, generation)
@@ -506,7 +506,23 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun pollGitHubAppDeviceFlow(client: GitHubAppDeviceFlowClient, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int, clientId: String, generation: Long) {
+    private fun showGitHubAppPollingDialog(client: GitHubAppDeviceFlowClient, deviceCode: String, expiresIn: Long, interval: Long, slot: Int, clientId: String, generation: Long) {
+        val waitingDialog = AlertDialog.Builder(this)
+            .setTitle("Waiting for GitHub approval")
+            .setMessage("Complete the one-time code approval in your browser. You can cancel this connection attempt safely.")
+            .setNegativeButton("Cancel") { _, _ ->
+                githubAppAuthGenerationBySlot.remove(slot, generation)
+                if (selectedAccount == slot) githubStatusLabel?.text = "GitHub App: Authorization cancelled"
+                recordActivity("github_app_device_authorization_cancelled", "CANCELLED", slot)
+                logAudit("github_app_device_authorization_cancelled")
+            }
+            .create()
+        waitingDialog.setCancelable(false)
+        waitingDialog.show()
+        pollGitHubAppDeviceFlow(client, deviceCode, expiresIn, interval, slot, clientId, generation, waitingDialog)
+    }
+
+    private fun pollGitHubAppDeviceFlow(client: GitHubAppDeviceFlowClient, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int, clientId: String, generation: Long, waitingDialog: AlertDialog) {
         if (selectedAccount == slot) githubStatusLabel?.text = "GitHub App: Waiting for browser approval…"
         githubExecutor.execute {
             val deadline = System.currentTimeMillis() + expiresIn.coerceAtLeast(1L) * 1000L
@@ -535,6 +551,7 @@ class MainActivity : Activity() {
                 if (installations.isEmpty()) throw IllegalStateException("No installation of this GitHub App is available to this account")
                 runOnUiThread {
                     if (isFinishing || isDestroyed || !isCurrentGitHubAppAuth(slot, generation)) return@runOnUiThread
+                    waitingDialog.dismiss()
                     val labels = installations.map { "${it.account} • ${it.accountType} • ${it.repositorySelection} repos" }.toTypedArray()
                     AlertDialog.Builder(this).setTitle("Select GitHub App installation")
                         .setItems(labels) { _, which ->
@@ -550,6 +567,7 @@ class MainActivity : Activity() {
                 Thread.currentThread().interrupt()
             } catch (_: Exception) {
                 runOnUiThread {
+                    waitingDialog.dismiss()
                     if (isFinishing || isDestroyed || !isCurrentGitHubAppAuth(slot, generation)) return@runOnUiThread
                     if (selectedAccount == slot) githubStatusLabel?.text = "GitHub App: Not connected"
                     Toast.makeText(this, "GitHub App authorization failed, expired, or has no accessible installation.", Toast.LENGTH_LONG).show()
