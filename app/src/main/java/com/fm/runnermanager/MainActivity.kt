@@ -32,6 +32,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.fm.runnermanager.adapters.GitHubDeviceFlowClient
 import com.fm.runnermanager.adapters.GitHubAppDeviceFlowClient
+import com.fm.runnermanager.adapters.GitHubAppTokenVault
 import java.util.concurrent.Executors
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
@@ -51,6 +52,8 @@ class MainActivity : Activity() {
     private val auditPreferences by lazy { getSharedPreferences("local_audit_metadata", MODE_PRIVATE) }
     private val historyPreferences by lazy { getSharedPreferences("local_activity_history", MODE_PRIVATE) }
     private val policyPreferences by lazy { getSharedPreferences("local_runner_policy", MODE_PRIVATE) }
+    private val githubAppSessionPreferences by lazy { getSharedPreferences("github_app_sessions", MODE_PRIVATE) }
+    private val githubAppTokenVault by lazy { GitHubAppTokenVault(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var cpuLabel: TextView? = null
     private var ramLabel: TextView? = null
@@ -89,6 +92,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         renderDashboard()
         refreshMetrics()
+        restoreGitHubAppSessions()
         handler.postDelayed(refreshTask, 3000L)
     }
 
@@ -379,6 +383,8 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Remove") { _, _ ->
                 githubAppAuthGenerationBySlot.remove(id)
+                githubAppTokenVault.remove(id)
+                githubAppSessionPreferences.edit().remove("installation_id_$id").apply()
                 githubTokensBySlot.remove(id)
                 githubAppSlots.remove(id)
                 githubAppInstallationIdsBySlot.remove(id)
@@ -557,7 +563,7 @@ class MainActivity : Activity() {
                     val labels = installations.map { "${it.account} • ${it.accountType} • ${it.repositorySelection} repos" }.toTypedArray()
                     AlertDialog.Builder(this).setTitle("Select GitHub App installation")
                         .setItems(labels) { _, which ->
-                            if (which in installations.indices && isCurrentGitHubAppAuth(slot, generation)) loadGitHubAppInstallation(client, token, identity.login, installations[which], slot, clientId, generation)
+                            if (which in installations.indices && isCurrentGitHubAppAuth(slot, generation)) loadGitHubAppInstallation(client, token, authorized?.refreshToken, identity.login, installations[which], slot, clientId, generation)
                         }
                         .setOnCancelListener {
                             githubAppAuthGenerationBySlot.remove(slot, generation)
@@ -580,10 +586,11 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun loadGitHubAppInstallation(client: GitHubAppDeviceFlowClient, token: String, login: String, installation: GitHubAppDeviceFlowClient.Installation, slot: Int, clientId: String, generation: Long) {
+    private fun loadGitHubAppInstallation(client: GitHubAppDeviceFlowClient, token: String, refreshToken: String?, login: String, installation: GitHubAppDeviceFlowClient.Installation, slot: Int, clientId: String, generation: Long) {
         githubExecutor.execute {
             try {
                 if (!isCurrentGitHubAppAuth(slot, generation)) return@execute
+                if (!refreshToken.isNullOrBlank()) githubAppTokenVault.putRefreshToken(slot, refreshToken)
                 val repos = client.installationRepositories(token, installation.id).map {
                     GitHubDeviceFlowClient.Repository(it.owner, it.name, it.isPrivate, it.htmlUrl)
                 }
@@ -593,6 +600,7 @@ class MainActivity : Activity() {
                     githubClientIds[slot] = clientId
                     githubAppSlots.add(slot)
                     githubAppInstallationIdsBySlot[slot] = installation.id
+                    githubAppSessionPreferences.edit().putLong("installation_id_$slot", installation.id).apply()
                     githubReposBySlot[slot] = repos
                     githubLoginsBySlot[slot] = login
                     githubAccountSpinner?.adapter = neonAdapter(accountLabels())
@@ -603,7 +611,7 @@ class MainActivity : Activity() {
                     }
                     recordActivity("github_app_installation_repositories_loaded", "SUCCESS", slot)
                     logAudit("github_app_installation_repositories_loaded")
-                    Toast.makeText(this, "GitHub App connected as $login. Loaded ${repos.size} installation-authorized repositories. Token remains memory-only; runner controls remain disabled.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, if (!refreshToken.isNullOrBlank()) "GitHub App connected as $login. Encrypted refresh session saved; runner controls remain disabled." else "GitHub App connected as $login for this app session. GitHub did not issue a refresh token, so reconnect may be required after expiry.", Toast.LENGTH_LONG).show()
                 }
             } catch (_: Exception) {
                 runOnUiThread {
@@ -612,6 +620,66 @@ class MainActivity : Activity() {
                     Toast.makeText(this, "Could not list repositories for this installation. Verify App permissions and installation access.", Toast.LENGTH_LONG).show()
                     recordActivity("github_app_installation_repositories_failed", "FAILED", slot)
                     logAudit("github_app_installation_repositories_failed")
+                }
+            }
+        }
+    }
+
+    /** Restore saved GitHub App sessions using rotating refresh tokens from Android Keystore. */
+    private fun restoreGitHubAppSessions() {
+        val clientId = BuildConfig.GITHUB_APP_CLIENT_ID.trim()
+        if (clientId.isBlank()) return
+        accountIds().forEach { slot ->
+            if (githubAppTokenVault.getRefreshToken(slot) == null) return@forEach
+            val installationId = githubAppSessionPreferences.getLong("installation_id_$slot", -1L)
+            if (installationId <= 0L) {
+                recordActivity("github_app_session_restore_blocked_missing_installation", "BLOCKED", slot)
+                return@forEach
+            }
+            val generation = githubAppAuthSequence.incrementAndGet()
+            githubAppAuthGenerationBySlot[slot] = generation
+            githubExecutor.execute {
+                try {
+                    val client = GitHubAppDeviceFlowClient(clientId)
+                    val oldRefreshToken = githubAppTokenVault.getRefreshToken(slot) ?: return@execute
+                    val refreshed = client.refreshUserToken(oldRefreshToken).token
+                        ?: throw IllegalStateException("GitHub refresh token expired or was revoked")
+                    val nextRefreshToken = refreshed.refreshToken
+                    if (!nextRefreshToken.isNullOrBlank()) {
+                        // Refresh tokens rotate; persist the replacement immediately.
+                        githubAppTokenVault.putRefreshToken(slot, nextRefreshToken)
+                    } else {
+                        throw IllegalStateException("GitHub did not return a replacement refresh token")
+                    }
+                    if (!isCurrentGitHubAppAuth(slot, generation)) return@execute
+                    val identity = client.identity(refreshed.accessToken)
+                    val repos = client.installationRepositories(refreshed.accessToken, installationId).map {
+                        GitHubDeviceFlowClient.Repository(it.owner, it.name, it.isPrivate, it.htmlUrl)
+                    }
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed || !isCurrentGitHubAppAuth(slot, generation)) return@runOnUiThread
+                        githubTokensBySlot[slot] = refreshed.accessToken
+                        githubClientIds[slot] = clientId
+                        githubAppSlots.add(slot)
+                        githubAppInstallationIdsBySlot[slot] = installationId
+                        githubReposBySlot[slot] = repos
+                        githubLoginsBySlot[slot] = identity.login
+                        githubAccountSpinner?.adapter = neonAdapter(accountLabels())
+                        githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
+                        if (selectedAccount == slot) {
+                            updateRepositorySpinner()
+                            githubStatusLabel?.text = "GitHub App: " + identity.login + " • session restored • " + repos.size + " repos"
+                        }
+                        recordActivity("github_app_session_restored", "SUCCESS", slot)
+                        logAudit("github_app_session_restored")
+                    }
+                } catch (_: Exception) {
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed || !isCurrentGitHubAppAuth(slot, generation)) return@runOnUiThread
+                        if (selectedAccount == slot) githubStatusLabel?.text = "GitHub App: Session expired — reconnect required"
+                        recordActivity("github_app_session_restore_failed", "RECONNECT_REQUIRED", slot)
+                        logAudit("github_app_session_restore_failed")
+                    }
                 }
             }
         }
