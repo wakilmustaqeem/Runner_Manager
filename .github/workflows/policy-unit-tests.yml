@@ -1,4 +1,5 @@
 name: FM Runner Manager Policy Unit Tests
+# Test-only workflow: one self-hosted unit-test job; no APK release or repository deployment.
 
 on:
   push:
