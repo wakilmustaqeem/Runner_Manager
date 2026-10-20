@@ -377,7 +377,7 @@ class MainActivity : Activity() {
                 githubClientIds.remove(id)
                 githubLoginsBySlot.remove(id)
                 selectedRepositoryBySlot.remove(id)
-                preferences.edit().remove(aliasKey(id)).remove(githubLoginKey(id)).apply()
+                preferences.edit().remove(aliasKey(id)).remove(githubLoginKey(id)).remove(githubClientIdKey(id)).apply()
                 val remaining = ids.filterNot { it == id }
                 saveAccountIds(remaining)
                 selectedAccount = remaining.first()
@@ -388,6 +388,7 @@ class MainActivity : Activity() {
     }
 
     private fun githubLoginKey(slot: Int) = "github_login_$slot"
+    private fun githubClientIdKey(slot: Int) = "github_client_id_$slot"
 
     /** Only the selected slot may hold a decrypted token in memory. */
     private fun activateAccountSlot(slot: Int) {
@@ -404,7 +405,7 @@ class MainActivity : Activity() {
         githubExecutor.execute {
             try {
                 val token = credentialVault.load(slot) ?: throw IllegalStateException("Saved session unavailable")
-                val clientId = githubClientIds[slot] ?: BuildConfig.GITHUB_APP_CLIENT_ID.trim()
+                val clientId = githubClientIds[slot] ?: preferences.getString(githubClientIdKey(slot), null) ?: BuildConfig.GITHUB_APP_CLIENT_ID.trim()
                 if (clientId.isBlank()) throw IllegalStateException("GitHub App Client ID not configured")
                 val client = GitHubDeviceFlowClient(clientId)
                 val identity = client.identity(token)
@@ -416,7 +417,7 @@ class MainActivity : Activity() {
                     githubClientIds[slot] = clientId
                     githubLoginsBySlot[slot] = identity.login
                     githubReposBySlot[slot] = repos
-                    preferences.edit().putString(githubLoginKey(slot), identity.login).apply()
+                    preferences.edit().putString(githubClientIdKey(slot), clientId).putString(githubLoginKey(slot), identity.login).apply()
                     githubAccountSpinner?.adapter = neonAdapter(accountLabels())
                     githubAccountSpinner?.setSelection(accountIds().indexOf(slot).coerceAtLeast(0), false)
                     updateRepositorySpinner()
