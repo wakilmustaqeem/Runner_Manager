@@ -536,15 +536,20 @@ class MainActivity : Activity() {
                     if (!token.isNullOrBlank()) {
                         val identity = client.identity(token)
                         val repos = client.repositories(token)
-                        runOnUiThread {
-                            if (isFinishing || isDestroyed) return@runOnUiThread
-                            runCatching { credentialVault.save(slot, token) }.getOrElse {
-                                githubStatusLabel?.text = "GitHub connection: Secure session storage failed"
+                        try {
+                            credentialVault.save(slot, token)
+                        } catch (_: Exception) {
+                            runOnUiThread {
+                                if (isFinishing || isDestroyed) return@runOnUiThread
+                                if (selectedAccount == slot) githubStatusLabel?.text = "GitHub connection: Secure session storage failed"
                                 recordActivity("github_credential_vault_save_failed", "FAILED", slot)
                                 logAudit("github_credential_vault_save_failed")
                                 Toast.makeText(this, "Secure session storage failed. Please retry; the token was not retained.", Toast.LENGTH_LONG).show()
-                                return@runOnUiThread
                             }
+                            return@execute
+                        }
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
                             githubTokensBySlot.clear()
                             if (selectedAccount == slot) githubTokensBySlot[slot] = token
                             githubReposBySlot[slot] = repos
