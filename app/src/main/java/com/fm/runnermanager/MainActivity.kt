@@ -188,14 +188,14 @@ class MainActivity : Activity() {
         }, marginParams(bottom = 8))
         repoSpinner = Spinner(this).apply {
             onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
-                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
-                    selectedRepositoryBySlot.remove(selectedAccount)
-                }
+                override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
                 override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                     val repos = githubReposBySlot[selectedAccount].orEmpty()
                     if (position in repos.indices) {
                         val repo = repos[position]
-                        selectedRepositoryBySlot[selectedAccount] = repo.owner + "/" + repo.name
+                        val fullName = repo.owner + "/" + repo.name
+                        selectedRepositoryBySlot[selectedAccount] = fullName
+                        preferences.edit().putString(selectedRepositoryKey(selectedAccount), fullName).apply()
                     } else {
                         selectedRepositoryBySlot.remove(selectedAccount)
                     }
@@ -381,6 +381,7 @@ class MainActivity : Activity() {
                 githubClientIds.remove(id)
                 githubLoginsBySlot.remove(id)
                 selectedRepositoryBySlot.remove(id)
+                preferences.edit().remove(selectedRepositoryKey(id)).apply()
                 updateRepositorySpinner()
                 updateGitHubConnectionLabel()
                 try {
@@ -423,7 +424,8 @@ class MainActivity : Activity() {
                 githubClientIds.remove(id)
                 githubLoginsBySlot.remove(id)
                 selectedRepositoryBySlot.remove(id)
-                preferences.edit().remove(aliasKey(id)).remove(githubLoginKey(id)).remove(githubClientIdKey(id)).apply()
+                preferences.edit().remove(aliasKey(id)).remove(githubLoginKey(id)).remove(githubClientIdKey(id))
+                    .remove(selectedRepositoryKey(id)).apply()
                 val remaining = ids.filterNot { it == id }
                 saveAccountIds(remaining)
                 selectedAccount = remaining.first()
@@ -436,6 +438,7 @@ class MainActivity : Activity() {
 
     private fun githubLoginKey(slot: Int) = "github_login_$slot"
     private fun githubClientIdKey(slot: Int) = "github_client_id_$slot"
+    private fun selectedRepositoryKey(slot: Int) = "selected_repository_$slot"
 
     /** Only the selected slot may hold a decrypted token in memory. */
     private fun activateAccountSlot(slot: Int) {
@@ -491,11 +494,18 @@ class MainActivity : Activity() {
         spinner.adapter = neonAdapter(labels)
         spinner.isEnabled = repos.isNotEmpty()
         val selected = selectedRepositoryBySlot[selectedAccount]
+            ?: preferences.getString(selectedRepositoryKey(selectedAccount), null)
         val index = repos.indexOfFirst { it.owner + "/" + it.name == selected }
-        if (index >= 0) spinner.setSelection(index)
-        else if (repos.isNotEmpty()) {
-            spinner.setSelection(0)
-            selectedRepositoryBySlot[selectedAccount] = repos.first().owner + "/" + repos.first().name
+        if (index >= 0) {
+            selectedRepositoryBySlot[selectedAccount] = repos[index].owner + "/" + repos[index].name
+            spinner.setSelection(index, false)
+        } else if (repos.isNotEmpty()) {
+            val first = repos.first().owner + "/" + repos.first().name
+            selectedRepositoryBySlot[selectedAccount] = first
+            preferences.edit().putString(selectedRepositoryKey(selectedAccount), first).apply()
+            spinner.setSelection(0, false)
+        } else {
+            selectedRepositoryBySlot.remove(selectedAccount)
         }
     }
 
