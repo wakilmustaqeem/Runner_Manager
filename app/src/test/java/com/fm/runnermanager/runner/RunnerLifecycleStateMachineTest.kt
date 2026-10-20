@@ -95,6 +95,26 @@ class RunnerLifecycleStateMachineTest {
     }
 
     @Test
+    fun runningConfirmationIsDeniedIfAnotherJobBecameActive() {
+        val result = RunnerLifecycleStateMachine.transition(
+            RunnerLifecycleState.START_PENDING,
+            RunnerLifecycleEvent.PROCESS_AND_SESSION_HEALTH_CONFIRMED,
+            guards(healthConfirmed = true, noOtherJob = false)
+        )
+        assertTrue(result is RunnerTransitionResult.Denied)
+    }
+
+    @Test
+    fun runningConfirmationIsDeniedIfAdmissionPolicyChanges() {
+        val result = RunnerLifecycleStateMachine.transition(
+            RunnerLifecycleState.START_PENDING,
+            RunnerLifecycleEvent.PROCESS_AND_SESSION_HEALTH_CONFIRMED,
+            guards(healthConfirmed = true, policyAllows = false)
+        )
+        assertTrue(result is RunnerTransitionResult.Denied)
+    }
+
+    @Test
     fun recoveryStopsWhenRetryBudgetIsExhausted() {
         val result = RunnerLifecycleStateMachine.transition(
             RunnerLifecycleState.RECOVERY_WAIT,
