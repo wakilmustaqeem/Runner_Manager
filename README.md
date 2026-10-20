@@ -12,7 +12,9 @@
 - Android version/API, supported ABI, internal storage, available RAM, and external-storage-state diagnostics.
 - Copy diagnostics report to clipboard by explicit user action.
 - Local metadata-only audit log for account-label changes and report copies.
-- GitHub App Device Flow and read-only metadata are available in the current code; tokens remain in memory only. No package installation, runner registration, workflow dispatch, or runner Start/Stop is implemented.
+- GitHub App Device Flow and read-only metadata client are implemented in source.
+- GitHub tokens are encrypted at rest with an Android Keystore-backed AES-GCM vault; only the selected account token is intended to remain in memory.
+- Runner registration, workflow dispatch, an independent FM runner runtime, and active Start/Stop remain unimplemented.
 
 ## Purpose
 
@@ -34,7 +36,7 @@ The four slots are local display labels, not pre-authorized identities. Each acc
 
 ## Adapter design
 
-See [GITHUB-RUNNER-ADAPTER-DESIGN.md](docs/GITHUB-RUNNER-ADAPTER-DESIGN.md) for the proposed read-only GitHub adapter, per-account credential isolation, separate local DroidRunner control interface, policy enforcement gates, and acceptance criteria. This is design documentation only; no live GitHub connection or runner controls are enabled.
+See [GITHUB-RUNNER-ADAPTER-DESIGN.md](docs/GITHUB-RUNNER-ADAPTER-DESIGN.md) for the independent FM architecture, encrypted credential vault, policy enforcement gates, and acceptance criteria. DroidRunner is a separate app and is reference material only; this project must not integrate with or control it.
 
 ## Current UI upgrade — feature branch only
 
@@ -60,7 +62,7 @@ The UI upgrade is being promoted to `main` through a dedicated integration branc
 
 ## Verification status
 
-This remains a **foundation scaffold, not a production runner manager**. Debug APK builds were verified on feature branch `feat/live-runner-dashboard-v1-2026-10-14`, including run `38553960072` at commit `e823caa0637533766c229610e8ec85a969bdc62c`. A follow-up fail-closed policy correction is being built separately. Device installation/runtime testing is still pending. GitHub OAuth, Android Keystore-backed credential storage, live runner monitoring, package installation, and APK signing remain unimplemented. Do not paste secrets into Issues, commits, or chat.
+This remains a **foundation scaffold, not a production runner manager**. An Android Keystore-backed credential vault and encrypted session persistence have now been added on the independent feature branch, but compile/build and device verification have not been performed for these changes. The independent FM runner runtime, foreground service, live runner execution, policy enforcement at job admission, package installation, and release signing remain unimplemented or unverified. Do not paste secrets into Issues, commits, or chat. See [IMPLEMENTATION-STATUS.md](docs/IMPLEMENTATION-STATUS.md).
 
 ## Development approach
 
