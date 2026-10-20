@@ -16,6 +16,8 @@ This is an implementation status record, not a claim that the app is production-
 - Corrected a Device Flow completion race so authorization finishing for an inactive slot does not clear the currently selected account's in-memory token.
 - Persisted the public GitHub App Client ID with the slot's local session metadata, so a developer-configured Client ID can be used when restoring the encrypted token after process recreation.
 - Existing runner Start/Stop controls remain disabled.
+- Policy evaluator has JUnit boundary tests in `app/src/test/java/com/fm/runnermanager/adapters/PolicyGateTest.kt`; these tests have been added but not executed.
+- Dashboard now labels power/job preferences as local-only and not enforced until a real FM runner runtime exists.
 - Policy evaluator exists, but it is not wired into a real job-admission boundary.
 
 ## Not yet implemented or verified
