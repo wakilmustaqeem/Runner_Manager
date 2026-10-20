@@ -31,6 +31,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.fm.runnermanager.adapters.GitHubDeviceFlowClient
+import com.fm.runnermanager.security.CredentialVault
 import java.util.concurrent.Executors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -48,6 +49,7 @@ class MainActivity : Activity() {
     private val auditPreferences by lazy { getSharedPreferences("local_audit_metadata", MODE_PRIVATE) }
     private val historyPreferences by lazy { getSharedPreferences("local_activity_history", MODE_PRIVATE) }
     private val policyPreferences by lazy { getSharedPreferences("local_runner_policy", MODE_PRIVATE) }
+    private val credentialVault by lazy { CredentialVault(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var cpuLabel: TextView? = null
     private var ramLabel: TextView? = null
@@ -155,7 +157,10 @@ class MainActivity : Activity() {
             override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
                 val ids = accountIds()
                 if (position in ids.indices) {
-                    selectedAccount = ids[position]
+                    val nextSlot = ids[position]
+                    val changed = selectedAccount != nextSlot
+                    selectedAccount = nextSlot
+                    if (changed) activateAccountSlot(nextSlot)
                     updateRepositorySpinner()
                     updateGitHubConnectionLabel()
                 }
@@ -245,7 +250,7 @@ class MainActivity : Activity() {
         root.addView(runnerPanel, marginParams(bottom = 12))
 
         section(root, "Power & job policy")
-        root.addView(text("Saved locally only. These settings do not yet change DroidRunner admission or interrupt jobs.", 13f, muted, false)
+        root.addView(text("Saved locally only. FM Runner Manager has no active runner runtime yet; these settings are not enforced.", 13f, muted, false)
             .apply { setPadding(0, 0, 0, dp(7)) })
         root.addView(text("Battery optimization: Android may restrict background runner activity. Grant exemption manually in system settings if needed; this app does not change it automatically.", 12f, muted, false)
             .apply { setPadding(0, 0, 0, dp(8)) })
@@ -339,8 +344,8 @@ class MainActivity : Activity() {
 
     private fun accountLabels(): List<String> = accountIds().map { id ->
         val alias = preferences.getString(aliasKey(id), defaultAlias(id)) ?: defaultAlias(id)
-        val login = githubLoginsBySlot[id]
-        "Account " + id + " • " + (login ?: alias) + if (githubTokensBySlot.containsKey(id)) " • connected" else ""
+        val login = githubLoginsBySlot[id] ?: preferences.getString(githubLoginKey(id), null)
+        "Account " + id + " • " + (login ?: alias) + if (githubTokensBySlot.containsKey(id)) " • active" else if (login != null) " • saved" else ""
     }
 
     private fun addAccount() {
@@ -367,11 +372,12 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Remove") { _, _ ->
                 githubTokensBySlot.remove(id)
+                runCatching { credentialVault.clear(id) }
                 githubReposBySlot.remove(id)
                 githubClientIds.remove(id)
                 githubLoginsBySlot.remove(id)
                 selectedRepositoryBySlot.remove(id)
-                preferences.edit().remove(aliasKey(id)).apply()
+                preferences.edit().remove(aliasKey(id)).remove(githubLoginKey(id)).apply()
                 val remaining = ids.filterNot { it == id }
                 saveAccountIds(remaining)
                 selectedAccount = remaining.first()
@@ -379,6 +385,54 @@ class MainActivity : Activity() {
                 logAudit("github_account_removed_local_session_cleared")
                 renderDashboard()
             }.show()
+    }
+
+    private fun githubLoginKey(slot: Int) = "github_login_$slot"
+
+    /** Only the selected slot may hold a decrypted token in memory. */
+    private fun activateAccountSlot(slot: Int) {
+        githubTokensBySlot.clear()
+        githubReposBySlot.remove(slot)
+        selectedRepositoryBySlot.remove(slot)
+        updateRepositorySpinner()
+        val encryptedTokenExists = runCatching { credentialVault.load(slot) }.getOrNull()
+        if (encryptedTokenExists.isNullOrBlank()) {
+            updateGitHubConnectionLabel()
+            return
+        }
+        githubStatusLabel?.text = "GitHub connection: Verifying saved session…"
+        githubExecutor.execute {
+            try {
+                val token = credentialVault.load(slot) ?: throw IllegalStateException("Saved session unavailable")
+                val clientId = githubClientIds[slot] ?: BuildConfig.GITHUB_APP_CLIENT_ID.trim()
+                if (clientId.isBlank()) throw IllegalStateException("GitHub App Client ID not configured")
+                val client = GitHubDeviceFlowClient(clientId)
+                val identity = client.identity(token)
+                val repos = client.repositories(token)
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || selectedAccount != slot) return@runOnUiThread
+                    githubTokensBySlot.clear()
+                    githubTokensBySlot[slot] = token
+                    githubClientIds[slot] = clientId
+                    githubLoginsBySlot[slot] = identity.login
+                    githubReposBySlot[slot] = repos
+                    preferences.edit().putString(githubLoginKey(slot), identity.login).apply()
+                    githubAccountSpinner?.adapter = neonAdapter(accountLabels())
+                    githubAccountSpinner?.setSelection(accountIds().indexOf(slot).coerceAtLeast(0), false)
+                    updateRepositorySpinner()
+                    updateGitHubConnectionLabel()
+                    recordActivity("github_saved_session_verified", "SUCCESS", slot)
+                }
+            } catch (_: Exception) {
+                runOnUiThread {
+                    if (isFinishing || isDestroyed || selectedAccount != slot) return@runOnUiThread
+                    githubTokensBySlot.clear()
+                    githubStatusLabel?.text = "GitHub session needs verification; reconnect if offline or revoked"
+                    recordActivity("github_saved_session_verification_unavailable", "UNVERIFIED", slot)
+                    logAudit("github_saved_session_verification_unavailable")
+                }
+            }
+        }
     }
 
     private fun updateRepositorySpinner() {
@@ -483,9 +537,18 @@ class MainActivity : Activity() {
                         val repos = client.repositories(token)
                         runOnUiThread {
                             if (isFinishing || isDestroyed) return@runOnUiThread
-                            githubTokensBySlot[slot] = token
+                            runCatching { credentialVault.save(slot, token) }.getOrElse {
+                                githubStatusLabel?.text = "GitHub connection: Secure session storage failed"
+                                recordActivity("github_credential_vault_save_failed", "FAILED", slot)
+                                logAudit("github_credential_vault_save_failed")
+                                Toast.makeText(this, "Secure session storage failed. Please retry; the token was not retained.", Toast.LENGTH_LONG).show()
+                                return@runOnUiThread
+                            }
+                            githubTokensBySlot.clear()
+                            if (selectedAccount == slot) githubTokensBySlot[slot] = token
                             githubReposBySlot[slot] = repos
                             githubLoginsBySlot[slot] = identity.login
+                            preferences.edit().putString(githubLoginKey(slot), identity.login).apply()
                             githubAccountSpinner?.adapter = neonAdapter(accountLabels())
                             githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
                             if (selectedAccount == slot) {
@@ -494,7 +557,7 @@ class MainActivity : Activity() {
                             }
                             recordActivity("github_account_connected_readonly", "SUCCESS", slot)
                             logAudit("github_account_connected_readonly")
-                            Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Token remains memory-only.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Session is encrypted locally; GitHub may still revoke or expire it.", Toast.LENGTH_LONG).show()
                         }
                         return@execute
                     }
