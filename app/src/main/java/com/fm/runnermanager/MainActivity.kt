@@ -81,6 +81,8 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val savedSlot = preferences.getInt("selected_account_slot", 1)
+        selectedAccount = savedSlot.takeIf { it in accountIds() } ?: accountIds().first()
         renderDashboard()
         refreshMetrics()
         handler.postDelayed(refreshTask, 3000L)
@@ -160,6 +162,7 @@ class MainActivity : Activity() {
                     val nextSlot = ids[position]
                     val changed = selectedAccount != nextSlot
                     selectedAccount = nextSlot
+                    preferences.edit().putInt("selected_account_slot", nextSlot).apply()
                     if (changed || !githubTokensBySlot.containsKey(nextSlot)) activateAccountSlot(nextSlot)
                     updateRepositorySpinner()
                     updateGitHubConnectionLabel()
@@ -353,6 +356,7 @@ class MainActivity : Activity() {
         val nextId = (ids.maxOrNull() ?: 0) + 1
         saveAccountIds(ids + nextId)
         selectedAccount = nextId
+        preferences.edit().putInt("selected_account_slot", nextId).apply()
         recordActivity("github_account_entry_added")
         logAudit("github_account_entry_added")
         renderDashboard()
@@ -381,6 +385,7 @@ class MainActivity : Activity() {
                 val remaining = ids.filterNot { it == id }
                 saveAccountIds(remaining)
                 selectedAccount = remaining.first()
+                preferences.edit().putInt("selected_account_slot", selectedAccount).apply()
                 recordActivity("github_account_removed_local_session_cleared")
                 logAudit("github_account_removed_local_session_cleared")
                 renderDashboard()
