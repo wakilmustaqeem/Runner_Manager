@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!--
+        Android 17 blocks direct NPU access from apps that do not declare this,
+        and that includes the deprecated NNAPI this app already uses to reach
+        MediaTek and Tensor accelerators. Declared before targeting API 37 so
+        the path that works today keeps working when the target moves.
+
+        required="false" because a phone without an NPU is still a perfectly
+        good ARM64 runner — most of what this app does has nothing to do with
+        accelerators.
+    -->
+    <uses-feature android:name="android.hardware.npu" android:required="false" />
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:label="DroidRunner"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.DroidRunner"
+        android:usesCleartextTraffic="false">
+        <!--
+            The Hexagon stub links libcdsprpc.so directly — the platform's own
+            path to the DSP, listed in /vendor/etc/public.libraries.txt. Since
+            Android 12 an app has to name a vendor library before its linker
+            namespace will resolve it, and without this the stub fails to load
+            with "library not found in namespace" (issue #82).
+
+            required="false" because most devices have no such library and are
+            still perfectly good runners.
+        -->
+        <uses-native-library android:name="libcdsprpc.so" android:required="false" />
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name=".runner.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+            Brings the runner back after the system kills it, because
+            START_STICKY did not on any phone this was measured on (#184).
+            BIND_JOB_SERVICE is what lets the system, and only the system,
+            start it.
+        -->
+        <service
+            android:name=".runner.WatchdogJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!--
+            Hands Qualcomm's licence PDFs to whatever the user reads PDFs with,
+            so the terms can be read before they are accepted (issue #82).
+            Grants are per-URI and read-only; see res/xml/qnn_licences.xml for
+            how little is exposed.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.licences"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/qnn_licences" />
+        </provider>
+
+        <!--
+            Qualcomm's runtime lives in a process of its own. The FSF's line
+            for "one program" is the shared address space, and PRoot is
+            someone else's GPL-2.0 code running in the main process; this
+            project cannot grant exceptions on its behalf. Isolation also
+            means a vendor library that crashes takes down a process whose
+            only job is to answer questions about it (issue #82).
+        -->
+        <service
+            android:name=".qnn.QnnService"
+            android:exported="false"
+            android:process=":qnn" />
+
+        <service
+            android:name=".runner.RunnerService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Runs user-configured CI jobs on this device" />
+        </service>
+    </application>
+</manifest>

@@ -1,0 +1,106 @@
+name: Android
+
+on:
+  # Without a branch filter, pushing a branch that has a pull request open
+  # built the same commit twice — once for the push, once for the pull
+  # request. main is still built after a merge, which is the run that says
+  # whether the branch everyone works from is good.
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+# A newer push supersedes an in-flight check of the same branch. Runs on main
+# are left alone: each one certifies a commit that is already merged.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v4
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Build proot jniLibs
+        run: ANDROID_NDK_ROOT="$ANDROID_NDK_LATEST_HOME" runtime/build-proot.sh
+      - run: ./gradlew testDebugUnitTest assembleDebug
+
+      # Everything this project says about who ran a graph is a regex over
+      # prose TFLite prints. This fails when the library stops printing it,
+      # instead of every result quietly becoming `executed: unknown` (#128).
+      - run: tools/check-tflite-wording.sh
+      # `executed` is promised on every path from v0.8.0, and consumers are
+      # told they may delete their shim on the strength of it (#158). The
+      # Qualcomm builder has no automated coverage — it needs a Snapdragon —
+      # and the field went missing there once already.
+      - run: tools/check-executed-everywhere.sh
+      - uses: actions/upload-artifact@v7
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/app-debug.apk
+
+  # The operator matrix is reduced in Python, and every mistake in that
+  # reduction reads as a statement about somebody's silicon. It has no
+  # dependencies, so it is checked on every push rather than only where
+  # TensorFlow is installed.
+  tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: python -m unittest discover -s tools/op-matrix -v
+
+      # The index of committed matrices is derived from the matrices, not kept
+      # by hand. The hand-kept one dropped a driver a phone had been measured
+      # on, which reads as though nobody had asked that silicon for it (#217).
+      - run: python tools/op-matrix/index.py --check
+
+      # The wrapper is the only path a consumer takes and nothing compiles it.
+      # Its exit statuses are published in docs/RESULT-CONTRACT.md as something
+      # another repository may pin to, and until #125 they had nothing behind
+      # them — one of them was wrong, and a phone is what found it.
+      - run: runtime/tests/test-droidrunner-device.sh
+
+      # The licence table is how the GPL-2.0 §3 source offer is made, and it is
+      # made twice — once per README. A component added to one file and not the
+      # other tells half the recipients nothing, which is what happened to the
+      # Ubuntu rootfs row until #216. Neither file fails to render over it.
+      - run: tools/check-licence-tables-match.sh
+
+      # The tutorial is a page people copy verbatim, so the ref it names is the
+      # action they end up running. It sat on a tag for seven releases and gave
+      # readers a workflow without the outputs the next section tells them to
+      # branch on (#215). Nothing else ties the HTML to the action.
+      - run: tools/check-action-pin.sh
+
+      # Whether every phone came back from a roll is decided by one grep, and
+      # when it was wrong it was wrong silently (#207).
+      - run: tools/tests/test-roll-fleet.sh
+
+      # Nothing compiles a workflow either, and the two ways one goes wrong
+      # both look fine in the file: `${{ }}` in a `run:` block is a tag pasted
+      # into the shell of the job holding the signing key (#203), and a
+      # pipeline without `shell: bash` reports the last command's exit code, so
+      # `compare.py | tee` was a gate that could not fail (#204).
+      - run: tools/check-workflow-run-blocks.sh
+
+      # The gate above is a required check, so a false positive blocks a
+      # correct pull request — and it did: a job-level `defaults: run: shell:`
+      # is inherited by every step under it, and the scanner only asked what
+      # each step wrote (#243). Its passing fixtures matter as much as its
+      # failing ones, so both are here.
+      - run: tools/tests/test-check-workflow-run-blocks.sh
+
+      # Exercise the release workflow's actual guards against temporary git
+      # repositories, including a dispatch branch ahead of its requested tag.
+      - run: python -m unittest discover -s tools/tests -p 'test_app_release.py' -v
