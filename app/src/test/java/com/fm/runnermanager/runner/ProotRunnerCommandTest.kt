@@ -11,14 +11,26 @@ class ProotRunnerCommandTest {
         runtimeDir = File(root, "runtime")
     )
 
-    @Test fun missingRuntimeFailsClosedBeforeProcessLaunch() {
+    private fun installFixture(p: ProotRunnerCommand.Paths) {
+        listOf(
+            File(p.nativeLibraryDir, "libproot.so"),
+            File(p.nativeLibraryDir, "libproot-loader.so"),
+            File(p.nativeLibraryDir, "libproot-loader32.so"),
+            File(p.runtimeDir, "rootfs/usr/bin/env"),
+            File(p.runtimeDir, "home/runner/config.sh"),
+            File(p.runtimeDir, "home/runner/run.sh")
+        ).forEach { file -> file.parentFile?.mkdirs(); file.writeText("fixture") }
+    }
+
+    @Test fun missingRuntimeFailsClosedBeforeBuildingAProcess() {
         val p = paths(createTempDir())
-        assertEquals(5, ProotRunnerCommand.runtimeProblems(p).size)
+        assertEquals(6, ProotRunnerCommand.runtimeProblems(p).size)
+        assertThrows(IllegalStateException::class.java) { ProotRunnerCommand.run(p) }
     }
 
     @Test fun configurePinsOfficialRunnerArgumentsAndEphemeralMode() {
-        val root = createTempDir()
-        val p = paths(root)
+        val p = paths(createTempDir())
+        installFixture(p)
         val builder = ProotRunnerCommand.configure(
             p, "https://github.com/acme/project", "phone-runner",
             setOf("android", "arm64"), "test-registration-token", ephemeral = true
@@ -35,6 +47,7 @@ class ProotRunnerCommandTest {
 
     @Test fun invalidTargetAndEmptyTokenAreRejected() {
         val p = paths(createTempDir())
+        installFixture(p)
         assertThrows(IllegalArgumentException::class.java) {
             ProotRunnerCommand.configure(p, "https://github.com/acme/../other", "runner", emptySet(), "token")
         }
@@ -44,7 +57,9 @@ class ProotRunnerCommandTest {
     }
 
     @Test fun listenerUsesOfficialRunScript() {
-        val builder = ProotRunnerCommand.run(paths(createTempDir()))
+        val p = paths(createTempDir())
+        installFixture(p)
+        val builder = ProotRunnerCommand.run(p)
         assertTrue(builder.command().contains("/home/runner/run.sh"))
     }
 }
