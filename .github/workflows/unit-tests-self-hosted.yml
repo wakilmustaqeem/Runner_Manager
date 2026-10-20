@@ -27,34 +27,75 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Set up Android SDK tools
-        uses: android-actions/setup-android@v3
-
-      - name: Install only required Android SDK components
+      - name: Locate existing Android SDK tools
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.1"
+          candidates=()
+          [ -n "${ANDROID_SDK_ROOT:-}" ] && candidates+=("$ANDROID_SDK_ROOT")
+          [ -n "${ANDROID_HOME:-}" ] && candidates+=("$ANDROID_HOME")
+          candidates+=("$HOME/Android/Sdk" "/opt/android-sdk" "/usr/local/android-sdk")
+          sdkmanager_path=""
+          for root in "${candidates[@]}"; do
+            for candidate in "$root/cmdline-tools/latest/bin/sdkmanager" "$root/tools/bin/sdkmanager"; do
+              if [ -x "$candidate" ]; then
+                sdkmanager_path="$candidate"
+                sdk_root="$root"
+                break 2
+              fi
+            done
+          done
+          if [ -z "$sdkmanager_path" ] && command -v sdkmanager >/dev/null 2>&1; then
+            sdkmanager_path="$(command -v sdkmanager)"
+            sdk_root="$(dirname "$(dirname "$(dirname "$sdkmanager_path")")")"
+          fi
+          if [ -z "$sdkmanager_path" ]; then
+            echo "::error::Android SDK command-line tools are not present on this runner. No SDK download was attempted."
+            echo "Checked ANDROID_SDK_ROOT, ANDROID_HOME, ~/Android/Sdk, /opt/android-sdk and /usr/local/android-sdk."
+            exit 1
+          fi
+          echo "ANDROID_SDK_ROOT=$sdk_root" >> "$GITHUB_ENV"
+          echo "ANDROID_HOME=$sdk_root" >> "$GITHUB_ENV"
+          echo "$(dirname "$sdkmanager_path")" >> "$GITHUB_PATH"
+          echo "Using existing sdkmanager: $sdkmanager_path"
+          "$sdkmanager_path" --version
 
-      - name: Download and prepare Gradle 8.9 in runner temp
+      - name: Install only missing Android SDK components
         shell: bash
         run: |
           set -euo pipefail
+          sdkmanager_path="$(command -v sdkmanager)"
+          if [ ! -d "$ANDROID_SDK_ROOT/platforms/android-35" ] || [ ! -d "$ANDROID_SDK_ROOT/build-tools/35.0.1" ]; then
+            yes | "$sdkmanager_path" --licenses >/dev/null || true
+            "$sdkmanager_path" --install "platforms;android-35" "build-tools;35.0.1"
+          else
+            echo "Required Android SDK platform and build-tools are already installed."
+          fi
+
+      - name: Use installed Gradle or prepare Gradle 8.9 without unzip
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v gradle >/dev/null 2>&1; then
+            echo "Using existing Gradle: $(command -v gradle)"
+            gradle --version
+            exit 0
+          fi
           archive="$RUNNER_TEMP/gradle-8.9-bin.zip"
           staging="$RUNNER_TEMP/gradle-8.9-extract"
           install_dir="$RUNNER_TEMP/gradle-8.9"
           jar="$JAVA_HOME/bin/jar"
-          [ -x "$jar" ] || { echo "Java jar tool not found at $jar"; exit 1; }
+          [ -x "$jar" ] || { echo "::error::Java jar tool not found at $jar"; exit 1; }
           mkdir -p "$staging"
           curl --fail --location --show-error \
             --connect-timeout 30 --max-time 900 \
-            --retry 5 --retry-all-errors --retry-delay 10 \
+            --retry 3 --retry-all-errors --retry-delay 10 \
             "https://services.gradle.org/distributions/gradle-8.9-bin.zip" \
             --output "$archive"
           "$jar" tf "$archive" > "$RUNNER_TEMP/gradle-8.9-entries.txt"
           (cd "$staging" && "$jar" xf "$archive")
           [ -f "$staging/gradle-8.9/bin/gradle" ] || {
-            echo "Gradle launcher missing after extraction."
+            echo "::error::Gradle launcher missing after jar extraction."
             exit 1
           }
           chmod +x "$staging/gradle-8.9/bin/gradle"
@@ -66,4 +107,4 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gradle --no-daemon testDebugUnitTest
+          gradle --no-daemon :app:testDebugUnitTest
