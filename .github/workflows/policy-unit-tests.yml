@@ -1,0 +1,48 @@
+name: FM Runner Manager Policy Unit Tests
+
+on:
+  push:
+    branches:
+      - feat/independent-runner-architecture-v1
+    paths:
+      - "app/src/main/java/com/fm/runnermanager/adapters/RunnerAdapters.kt"
+      - "app/src/test/**"
+      - "app/build.gradle.kts"
+      - "build.gradle.kts"
+      - "settings.gradle.kts"
+      - "gradle.properties"
+      - ".github/workflows/policy-unit-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fm-runner-manager-policy-unit-tests
+  cancel-in-progress: false
+
+jobs:
+  policy-unit-tests:
+    name: Policy unit tests (single self-hosted job)
+    runs-on: [self-hosted, android, android-api-33, arm64]
+    timeout-minutes: 25
+    steps:
+      - name: Check out feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/independent-runner-architecture-v1
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Set up Android SDK command-line tools
+        uses: android-actions/setup-android@v3
+      - name: Install only the required Android SDK platform
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+      - name: Run policy unit tests only
+        run: gradle :app:testDebugUnitTest --no-daemon --stacktrace
