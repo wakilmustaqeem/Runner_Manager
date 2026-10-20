@@ -1,65 +1,89 @@
-# GitHub and DroidRunner adapter design
+# Independent FM Runner Manager Architecture
 
-Status: design only. This document does not enable network access, credentials, package installation, runner registration, workflow dispatch, or Start/Stop controls.
+Status: implementation plan; this document does not enable runner execution, registration, workflow dispatch, package installation, or Start/Stop controls.
 
-## Goals
+## Non-negotiable boundaries
 
-- Keep the four account slots isolated. A local label is not proof of authorization.
-- Show GitHub repository/job metadata only after the user explicitly connects and grants the minimum required access.
-- Keep runner-process control separate from GitHub API access: GitHub's REST API reports runner metadata but does not start or stop the local runner process.
-- Preserve a safe offline dashboard when no connector is configured.
+- FM Runner Manager is a standalone Android application with its own implementation and lifecycle.
+- DroidRunner is a separate application and is reference material for learning only. FM Runner Manager must not call, control, embed, depend on, or integrate with DroidRunner or its process/service.
+- Do not copy DroidRunner source code into this project. Reuse general engineering ideas only; independently implement and document FM code and review applicable licenses before redistributing any third-party material.
+- Preserve the existing GitHub account separation. Only one GitHub account may be active in the app at a time; other configured accounts remain inactive until explicitly selected.
+- Default deny: no runner registration, job execution, workflow dispatch, or Start/Stop action until its implementation and tests are explicitly approved.
+- Read-only GitHub metadata must remain separate from local runtime control.
 
-## Proposed adapter boundaries
+## Proposed independent components
 
 1. `GitHubReadOnlyAdapter`
-   - Fetch authenticated identity and only the repositories the identity can access.
-   - Read workflow-run/job metadata and runner status only when the selected repository/organization permissions allow it.
-   - Use explicit refresh, bounded pagination, timeouts, rate-limit handling, and clear stale-data timestamps.
-   - Do not dispatch workflows or change repository settings in the first implementation.
+   - Read authenticated identity, accessible repositories, workflow-run metadata, and runner metadata only where GitHub permissions allow.
+   - Use bounded pagination, timeouts, rate-limit handling, explicit refresh, and stale-data timestamps.
+   - Do not dispatch workflows or change repository settings.
 
 2. `CredentialVault`
-   - One independent authorization record per local account slot.
-   - Use an approved OAuth/device authorization flow and Android Keystore-backed encryption for any persisted secret material.
-   - Never accept tokens through normal text fields; never write credentials to logs, diagnostics, backups, clipboard reports, or source code.
-   - Provide disconnect/revoke and account-switch confirmation. No cross-slot credential fallback.
+   - Store no credentials until the user explicitly completes authorization.
+   - Use Android Keystore-backed encryption for persisted credential material and document token expiry/revocation behavior.
+   - Never place tokens, device codes, or authorization headers in logs, diagnostics, clipboard reports, screenshots, source code, or backups.
+   - On account switch, deactivate the prior account before activating the selected account. Never fall back to another account's token or repositories.
+   - Disconnect must clear local credentials and session metadata. Do not promise permanent login: revoked or expired credentials require reauthorization.
 
-3. `LocalRunnerAdapter`
-   - Separate interface for communicating with the already-installed DroidRunner service/process.
-   - Must use a documented, authenticated local IPC or explicit user-mediated handoff; do not assume Android apps can control another app's process.
-   - Start/Stop remains disabled until the real DroidRunner interface is identified, permission boundaries are reviewed, and device tests prove that actions affect the intended runner only.
+3. `IndependentRunnerRuntime`
+   - A future FM-owned runtime and Android foreground service; no IPC, intent, shared process, or other integration with DroidRunner.
+   - Prove Android ARM64/runtime compatibility before attempting registration. Device architecture alone is not proof that the official GitHub Actions runner can execute correctly.
+   - Keep registration, removal, and job execution disabled until a documented runtime implementation exists and is verified on-device.
+   - Never expose registration tokens. Registration/removal require explicit confirmation, bounded token lifetime handling, and a recovery note.
 
-4. `PolicyGate`
-   - Enforce mains power, minimum battery, thermal threshold, and minimum free storage at the point a job is admitted.
-   - Re-check conditions before a job and while it runs where the runtime supports safe cancellation.
-   - Until enforcement is implemented and tested, show policy values as “saved locally — not enforced”.
+4. `RunnerPolicyGate`
+   - Enforce charging/mains-power preference, minimum battery, thermal threshold, and minimum free storage at the actual job-admission boundary, not only in the UI.
+   - Fail closed on invalid or unavailable readings when the relevant policy requires them.
+   - Re-check conditions before job admission and during execution where safe cancellation is supported.
+   - Until runtime enforcement and tests pass, label policy values “saved locally — not enforced”.
 
-## Compatibility gate before runner control
+5. `AuditLog`
+   - Record metadata-only security events such as connect, disconnect, account switch, denied admission, and runtime state changes.
+   - Redact secrets by construction; avoid copying raw request/response bodies into logs.
+   - Keep account/repository context explicit without storing access tokens.
 
-- Confirm the actual DroidRunner version, supported CPU architecture, execution environment, and documented control interface.
-- Confirm whether the official GitHub Actions runner runtime is supported in that environment. Android ARM64 alone is not proof of compatibility.
-- Test a harmless sample workflow in a dedicated test repository before using valuable/private repositories.
-- Never expose runner registration tokens in the UI or logs. Registration and removal require explicit confirmation and a recovery note.
-- Treat workflow code as untrusted: use a separate work directory per account/repository, least privilege, no shared secrets, and cleanup only after confirming the correct path.
+## Implementation phases and gates
 
-## First implementation sequence
+### Phase 0 — Safe baseline
+- Keep the current dashboard usable offline.
+- Create test doubles and unit tests; do not add live runner controls.
+- Maintain a restore point and work only on a feature branch.
 
-1. Keep current dashboard offline by default.
-2. Add adapter interfaces and test doubles; no live controls.
-3. Verify authorization-flow feasibility and required GitHub permissions.
-4. Implement read-only identity/repository/job refresh behind explicit consent.
-5. Test account switching, disconnect, denied permissions, expired authorization, offline mode, rate limits, and audit redaction.
-6. Only after compatibility evidence, implement a LocalRunnerAdapter for the actual DroidRunner interface.
-7. Enable one control at a time after tests; retain a confirmation dialog and metadata-only audit entry.
+### Phase 1 — Session correctness
+- Verify device authorization and identity display on the device.
+- Implement/test one-active-account semantics, encrypted credential storage, disconnect, account switching, expiry/revocation, process recreation, and redacted audit events.
+- Do not claim persistent login until device tests prove it.
+
+### Phase 2 — Read-only GitHub data
+- Test repository isolation, private repository visibility, pagination limits, permission denial, offline behavior, rate limits, API errors, and stale-data display.
+- Confirm read-only mode cannot dispatch workflows or mutate repository settings.
+
+### Phase 3 — Runtime feasibility
+- Independently research and verify the official runner's compatibility with the target Android/ARM64 environment.
+- Document sandbox limitations, filesystem boundaries, process permissions, cleanup, and recovery behavior.
+- No registration or production repository access during feasibility tests.
+
+### Phase 4 — Controlled test execution
+- Only after compatibility evidence and separate approval, use a dedicated private test repository and one harmless job at a time.
+- Verify runner pickup, logs, resource limits, stop/recovery behavior, workspace cleanup, and that no unrelated repository/account is affected.
+- Keep production repositories and valuable secrets out of initial tests.
+
+### Phase 5 — Release gate
+- Require passing automated tests, on-device evidence, secret-redaction review, documented limitations, and explicit release approval.
+- No automatic release or production changes from this plan alone.
 
 ## Acceptance criteria
 
-- No network request or credential storage before explicit connection.
-- Each account slot can connect/disconnect independently and never displays another slot's repositories.
-- Read-only mode cannot dispatch workflows or alter repository settings.
-- Start/Stop stays disabled if the DroidRunner adapter is missing, disconnected, or unverified.
-- Policy settings are not represented as enforced until runtime checks are wired and tested.
-- Automated tests cover permission denial, offline state, API errors, rate limits, stale data, and secret redaction.
+- No credential persistence or network activity before explicit user authorization.
+- Exactly one active GitHub account at a time; inactive account data cannot leak into the selected account's view or actions.
+- FM Runner Manager has no runtime dependency on or control interface to DroidRunner.
+- Read-only mode cannot dispatch workflows, register/remove runners, or alter repository settings.
+- Start/Stop remains disabled until the independent FM runtime is implemented and verified.
+- Policy settings are not represented as enforced until checks execute at job admission and tests prove the behavior.
+- Tests cover permission denial, account switching, disconnect, token expiry/revocation, process recreation, offline state, API errors, rate limits, stale data, policy boundary values, and secret redaction.
 
-## Billing note
+## Security and cost notes
 
-A self-hosted runner may avoid GitHub-hosted runner-minute usage for eligible jobs, but it does not bypass GitHub plan limits, repository/organization policies, or other service charges. Workflow execution on a phone also has reliability, security, heat, battery, and compatibility trade-offs.
+Self-hosted runners execute workflow code on the device and can expose local data if untrusted workflows run. Initial tests must use a dedicated private test repository, least privilege, no valuable secrets, separate work directories, and carefully verified cleanup. Android process isolation or a userspace runtime must not be described as a strong VM/container security boundary without evidence.
+
+A self-hosted runner may reduce eligible GitHub-hosted runner-minute usage, but it does not bypass GitHub plan limits, repository/organization policies, or other service charges. Mobile execution also has reliability, thermal, battery, storage, network, and compatibility trade-offs.
