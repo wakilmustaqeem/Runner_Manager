@@ -1,0 +1,44 @@
+name: Runner Manager Unit Tests (Self-hosted only)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runner-manager-unit-tests
+  cancel-in-progress: false
+
+jobs:
+  unit-tests:
+    name: Run app unit tests only
+    runs-on: [self-hosted, android, android-api-33, arm64]
+    timeout-minutes: 20
+    steps:
+      - name: Checkout selected branch
+        uses: actions/checkout@v4
+
+      - name: Read-only toolchain preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Existing runner toolchain (no installs/downloads) ==="
+          echo "Architecture: $(uname -m)"
+          command -v java
+          java -version
+          command -v gradle
+          gradle --version
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+          if [ -z "$SDK" ] || [ ! -d "$SDK" ]; then
+            echo "Android SDK is not configured through ANDROID_HOME or ANDROID_SDK_ROOT."
+            exit 1
+          fi
+          echo "Android SDK: $SDK"
+          test -d "$SDK/platforms/android-35" || { echo "Missing Android platform 35; stopping without downloading it."; exit 1; }
+          test -d "$SDK/build-tools/35.0.1" || { echo "Missing Android build-tools 35.0.1; stopping without downloading them."; exit 1; }
+          echo "Preflight passed; no packages or SDK components were installed."
+
+      - name: Run unit tests only
+        shell: bash
+        run: gradle --no-daemon :app:testDebugUnitTest
