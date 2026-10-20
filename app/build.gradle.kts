@@ -2,8 +2,17 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+fun escapedBuildConfig(value: String): String =
+    value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "").replace("\r", "")
+
 val configuredGitHubClientId = providers.gradleProperty("githubAppClientId")
     .orElse(providers.environmentVariable("GITHUB_APP_CLIENT_ID"))
+    .getOrElse("")
+val configuredRuntimeSigningKeys = providers.gradleProperty("runtimeSigningKeys")
+    .orElse(providers.environmentVariable("FM_RUNTIME_SIGNING_KEYS"))
+    .getOrElse("")
+val configuredRuntimeManifestUrl = providers.gradleProperty("runtimeManifestUrl")
+    .orElse(providers.environmentVariable("FM_RUNTIME_MANIFEST_URL"))
     .getOrElse("")
 
 android {
@@ -16,11 +25,11 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        buildConfigField("String", "GITHUB_APP_CLIENT_ID", "\"${configuredGitHubClientId.replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        buildConfigField("String", "GITHUB_APP_CLIENT_ID", "\"${escapedBuildConfig(configuredGitHubClientId)}\"")
+        buildConfigField("String", "FM_RUNTIME_SIGNING_KEYS", "\"${escapedBuildConfig(configuredRuntimeSigningKeys)}\"")
+        buildConfigField("String", "FM_RUNTIME_MANIFEST_URL", "\"${escapedBuildConfig(configuredRuntimeManifestUrl)}\"")
     }
-    buildTypes {
-        release { isMinifyEnabled = false }
-    }
+    buildTypes { release { isMinifyEnabled = false } }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -28,6 +37,4 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 
-dependencies {
-    testImplementation("junit:junit:4.13.2")
-}
+dependencies { testImplementation("junit:junit:4.13.2") }
