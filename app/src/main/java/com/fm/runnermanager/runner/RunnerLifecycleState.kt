@@ -95,12 +95,6 @@ object RunnerLifecycleStateMachine {
         if (event == RunnerLifecycleEvent.RUNTIME_INTEGRITY_FAILED) {
             return RunnerTransitionResult.Accepted(RunnerLifecycleState.INTEGRITY_BLOCKED)
         }
-        if (current == RunnerLifecycleState.AUTH_BLOCKED ||
-            current == RunnerLifecycleState.INTEGRITY_BLOCKED
-        ) {
-            return RunnerTransitionResult.Denied("Blocked state requires explicit recovery outside this model")
-        }
-
         if (event == RunnerLifecycleEvent.REQUEST_DISCONNECT) {
             return when (current) {
                 RunnerLifecycleState.UNREGISTERED,
@@ -111,13 +105,12 @@ object RunnerLifecycleStateMachine {
                 RunnerLifecycleState.START_PENDING,
                 RunnerLifecycleState.RECOVERY_WAIT,
                 RunnerLifecycleState.REGISTRATION_PENDING,
-                RunnerLifecycleState.RUNTIME_FAILED ->
+                RunnerLifecycleState.RUNTIME_FAILED,
+                RunnerLifecycleState.AUTH_BLOCKED,
+                RunnerLifecycleState.INTEGRITY_BLOCKED ->
                     RunnerTransitionResult.Accepted(RunnerLifecycleState.DISCONNECT_PENDING)
                 RunnerLifecycleState.DISCONNECT_PENDING ->
                     RunnerTransitionResult.Accepted(RunnerLifecycleState.DISCONNECT_PENDING)
-                RunnerLifecycleState.AUTH_BLOCKED,
-                RunnerLifecycleState.INTEGRITY_BLOCKED ->
-                    RunnerTransitionResult.Denied("Blocked state requires explicit recovery outside this model")
             }
         }
 
@@ -136,6 +129,7 @@ object RunnerLifecycleStateMachine {
                     if (bindingCheck != null) RunnerTransitionResult.Denied(bindingCheck)
                     else if (!guards.runtimeReadyAndVerified) RunnerTransitionResult.Denied("Verified runtime required")
                     else if (!guards.admissionPolicyAllowsOperation) RunnerTransitionResult.Denied("Admission policy denied")
+                    else if (!guards.noOtherJobActive) RunnerTransitionResult.Denied("Another job is active")
                     else RunnerTransitionResult.Accepted(RunnerLifecycleState.REGISTRATION_PENDING)
                 }
                 else -> denied(current, event)
