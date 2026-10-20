@@ -15,6 +15,7 @@ This is an implementation status record, not a claim that the app is production-
 - Credential deletion is checked; if encrypted storage deletion fails, the in-memory token is cleared and account-slot removal is blocked rather than silently claiming success.
 - Corrected a Device Flow completion race so authorization finishing for an inactive slot does not clear the currently selected account's in-memory token.
 - Persisted the public GitHub App Client ID with the slot's local session metadata, so a developer-configured Client ID can be used when restoring the encrypted token after process recreation.
+- Persisted the selected repository separately for each account slot; repository selection is restored when the account's accessible repository list is loaded and cleared on disconnect/removal.
 - Existing runner Start/Stop controls remain disabled.
 - Policy evaluator has JUnit boundary tests in `app/src/test/java/com/fm/runnermanager/adapters/PolicyGateTest.kt`; these tests have been added but not executed.
 - Android instrumentation tests have been added for credential-vault encryption round-trip, plaintext absence, slot isolation, and clearing in `app/src/androidTest/java/com/fm/runnermanager/security/CredentialVaultInstrumentedTest.kt`; these tests have not been executed on a device.
