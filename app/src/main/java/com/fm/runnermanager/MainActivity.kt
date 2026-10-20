@@ -374,23 +374,24 @@ class MainActivity : Activity() {
             .setMessage("This removes the saved token and local GitHub session metadata for this slot, but keeps the account slot and its label. It does not revoke the app authorization at GitHub.")
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Disconnect") { _, _ ->
+                // Clear the decrypted session from memory immediately; persisted deletion is checked below.
+                githubTokensBySlot.remove(id)
+                githubReposBySlot.remove(id)
+                githubClientIds.remove(id)
+                githubLoginsBySlot.remove(id)
+                selectedRepositoryBySlot.remove(id)
+                updateRepositorySpinner()
+                updateGitHubConnectionLabel()
                 try {
                     credentialVault.clear(id)
-                    githubTokensBySlot.remove(id)
-                    githubReposBySlot.remove(id)
-                    githubClientIds.remove(id)
-                    githubLoginsBySlot.remove(id)
-                    selectedRepositoryBySlot.remove(id)
                     preferences.edit().remove(githubLoginKey(id)).remove(githubClientIdKey(id)).apply()
-                    updateRepositorySpinner()
-                    updateGitHubConnectionLabel()
                     recordActivity("github_account_disconnected_local_session_cleared", "SUCCESS", id)
                     logAudit("github_account_disconnected_local_session_cleared")
                     Toast.makeText(this, "Local session cleared. GitHub authorization was not revoked.", Toast.LENGTH_LONG).show()
                 } catch (_: Exception) {
                     recordActivity("github_account_disconnect_failed", "FAILED", id)
                     logAudit("github_account_disconnect_failed")
-                    Toast.makeText(this, "Could not confirm secure credential removal. Please retry.", Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, "Memory session cleared, but encrypted storage deletion failed. Retry disconnect before sharing the device.", Toast.LENGTH_LONG).show()
                 }
             }.show()
     }
@@ -408,7 +409,15 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Remove") { _, _ ->
                 githubTokensBySlot.remove(id)
-                runCatching { credentialVault.clear(id) }
+                try {
+                    credentialVault.clear(id)
+                } catch (_: Exception) {
+                    if (selectedAccount == id) updateGitHubConnectionLabel()
+                    recordActivity("github_account_removal_storage_clear_failed", "FAILED", id)
+                    logAudit("github_account_removal_storage_clear_failed")
+                    Toast.makeText(this, "Memory session cleared, but secure storage deletion failed. Account slot was kept; retry disconnect first.", Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
                 githubReposBySlot.remove(id)
                 githubClientIds.remove(id)
                 githubLoginsBySlot.remove(id)
