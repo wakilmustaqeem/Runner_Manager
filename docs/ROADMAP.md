@@ -23,25 +23,28 @@
 Package manager design: see [PACKAGE-MANAGER-DESIGN.md](PACKAGE-MANAGER-DESIGN.md). The design is documented; the app does not install packages yet.
 
 ## Phase 2 — Account isolation
-- [x] Document the safe GitHub/DroidRunner adapter boundary and compatibility gates (design only; no live integration enabled).
+- [x] Document the independent FM runner architecture; DroidRunner is a reference only and must not be integrated with or controlled.
 - [x] Add adapter contracts and a local policy evaluator; missing/invalid temperature data must deny when a temperature ceiling is configured.
 - [ ] Add automated policy-gate tests once an approved test dependency/setup is available.
-- [ ] Add a GitHub authorization flow using a supported secure OAuth/device flow.
-- [ ] Store authorization material only in Android Keystore-backed storage.
-- [ ] Keep one credential vault and runner work/config directory per identity.
+- [x] Add a GitHub App Device Flow and read-only REST client foundation.
+- [x] Add Android Keystore-backed AES-GCM credential vault and encrypted token persistence in source (device verification pending).
+- [x] Keep only the selected account token in memory and verify saved sessions before showing Connected (device verification pending).
+- [ ] Add automated vault/session tests and verify expiry, revocation, process recreation, and key invalidation.
+- [ ] Keep separate runner work/config directories per identity in the future independent runtime.
 - [ ] Display repository permissions and connection state separately from runner state.
 - [ ] Never accept or log runner registration tokens in plain text.
 
 ## Phase 3 — Runner integration
-- [ ] Identify and verify the actual DroidRunner local control interface; GitHub REST API alone cannot start/stop the local process.
-- [ ] Confirm GitHub-supported runner architecture and compatibility with the actual Android execution environment.
+- [ ] Design and verify FM-owned runtime/service without calling, controlling, embedding, or depending on DroidRunner.
+- [ ] Confirm GitHub-supported runner architecture and compatibility with the actual Android execution environment before registration.
 - [ ] Register each runner explicitly to the chosen repository or organization.
 - [ ] Keep runner registrations separate; do not copy one account's credentials to another.
 - [ ] Implement online/offline status and job metadata with rate limits.
 - [ ] Add manual start/stop and recovery controls with confirmation and audit events.
 
 ## Phase 4 — Build and release
-- [x] Build debug APK in GitHub Actions on the feature branch (run 38553960072, commit e823caa0637533766c229610e8ec85a969bdc62c).
+- [x] Previous dashboard debug APK build verified on feature branch (run 38553960072, commit e823caa0637533766c229610e8ec85a969bdc62c).
+- [ ] Build and verify the new encrypted-session implementation after explicit build approval.
 - [ ] Rebuild and verify the fail-closed policy correction.
 - [ ] Add reproducible Gradle wrapper files and verify the build from a clean checkout.
 - [ ] Test install, launch, rotation, low storage, and interrupted network on the Nubia Neo 2 device.
