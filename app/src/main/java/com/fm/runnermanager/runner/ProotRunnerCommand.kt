@@ -4,10 +4,9 @@ import java.io.File
 
 /**
  * Builds, but never starts, the DroidRunner-compatible PRoot command for the
- * official GitHub Actions runner. The native libraries and signed runtime bundle
- * must be supplied and verified separately before a caller may execute it.
- *
- * Tokens are passed only as process arguments and must never be logged.
+ * official GitHub Actions runner. Native libraries and the signed runtime bundle
+ * must be installed and verified separately before a caller may execute it.
+ * Never log command arguments: registration/removal tokens are process arguments.
  */
 internal object ProotRunnerCommand {
     data class Paths(
@@ -20,6 +19,7 @@ internal object ProotRunnerCommand {
         val required = listOf(
             File(paths.nativeLibraryDir, "libproot.so") to "PRoot native library",
             File(paths.nativeLibraryDir, "libproot-loader.so") to "PRoot loader",
+            File(paths.nativeLibraryDir, "libproot-loader32.so") to "PRoot 32-bit loader",
             File(paths.runtimeDir, "rootfs/usr/bin/env") to "runtime root filesystem",
             File(paths.runtimeDir, "home/runner/config.sh") to "runner configuration script",
             File(paths.runtimeDir, "home/runner/run.sh") to "runner listener script"
@@ -28,15 +28,21 @@ internal object ProotRunnerCommand {
             .map { (_, label) -> "$label is missing" }
     }
 
-    fun configure(paths: Paths, repositoryUrl: String, runnerName: String, labels: Set<String>, token: String,
-                  ephemeral: Boolean = false): ProcessBuilder {
+    fun configure(
+        paths: Paths,
+        repositoryUrl: String,
+        runnerName: String,
+        labels: Set<String>,
+        token: String,
+        ephemeral: Boolean = false
+    ): ProcessBuilder {
         require(repositoryUrl.matches(Regex("https://github\\.com/[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)?")) &&
             !repositoryUrl.contains("/../")) { "Invalid runner target URL" }
-        require(runnerName.isNotBlank() && runnerName.none { it == '\\n' || it == '\\r' }) {
+        require(runnerName.isNotBlank() && runnerName.none { it == '\n' || it == '\r' }) {
             "Invalid runner name"
         }
         require(labels.all { it.matches(Regex("[A-Za-z0-9_.-]+")) }) { "Invalid runner labels" }
-        require(token.isNotBlank() && token.none { it == '\\n' || it == '\\r' }) {
+        require(token.isNotBlank() && token.none { it == '\n' || it == '\r' }) {
             "Registration token is required"
         }
         val args = mutableListOf(
@@ -50,7 +56,7 @@ internal object ProotRunnerCommand {
     }
 
     fun remove(paths: Paths, token: String): ProcessBuilder {
-        require(token.isNotBlank() && token.none { it == '\\n' || it == '\\r' }) {
+        require(token.isNotBlank() && token.none { it == '\n' || it == '\r' }) {
             "Removal token is required"
         }
         return proot(paths, listOf("/home/runner/config.sh", "remove", "--token", token))
@@ -59,6 +65,9 @@ internal object ProotRunnerCommand {
     fun run(paths: Paths): ProcessBuilder = proot(paths, listOf("/home/runner/run.sh"))
 
     private fun proot(paths: Paths, command: List<String>): ProcessBuilder {
+        val problems = runtimeProblems(paths)
+        check(problems.isEmpty()) { "Runner runtime is not ready: ${problems.joinToString("; ")}" }
+
         val rootfs = File(paths.runtimeDir, "rootfs").absolutePath
         val home = File(paths.runtimeDir, "home").absolutePath
         val tmp = File(paths.cacheDir, "proot-tmp").apply { mkdirs() }.absolutePath
