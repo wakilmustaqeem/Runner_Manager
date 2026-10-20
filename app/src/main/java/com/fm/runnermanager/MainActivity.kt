@@ -257,6 +257,7 @@ class MainActivity : Activity() {
         root.addView(runnerPanel, marginParams(bottom = 12))
 
         section(root, "Power & job policy")
+        root.addView(text("Local preferences only; not enforced until FM runner runtime is implemented.", 12f, muted, true).apply { setPadding(0, 0, 0, dp(8)) })
         root.addView(text("Saved locally only. FM Runner Manager has no active runner runtime yet; these settings are not enforced.", 13f, muted, false)
             .apply { setPadding(0, 0, 0, dp(7)) })
         root.addView(text("Battery optimization: Android may restrict background runner activity. Grant exemption manually in system settings if needed; this app does not change it automatically.", 12f, muted, false)
