@@ -17,6 +17,7 @@ This is an implementation status record, not a claim that the app is production-
 - Persisted the public GitHub App Client ID with the slot's local session metadata, so a developer-configured Client ID can be used when restoring the encrypted token after process recreation.
 - Existing runner Start/Stop controls remain disabled.
 - Policy evaluator has JUnit boundary tests in `app/src/test/java/com/fm/runnermanager/adapters/PolicyGateTest.kt`; these tests have been added but not executed.
+- Android instrumentation tests have been added for credential-vault encryption round-trip, plaintext absence, slot isolation, and clearing in `app/src/androidTest/java/com/fm/runnermanager/security/CredentialVaultInstrumentedTest.kt`; these tests have not been executed on a device.
 - Dashboard now labels power/job preferences as local-only and not enforced until a real FM runner runtime exists.
 - Policy evaluator exists, but it is not wired into a real job-admission boundary.
 
