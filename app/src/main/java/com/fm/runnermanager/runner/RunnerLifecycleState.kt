@@ -89,6 +89,16 @@ object RunnerLifecycleStateMachine {
         event: RunnerLifecycleEvent,
         guards: RunnerLifecycleGuards
     ): RunnerTransitionResult {
+        // Once disconnect cleanup starts, do not let a concurrent auth/runtime event
+        // divert the state and strand cleanup before DISCONNECT_CLEANUP_CONFIRMED.
+        if (current == RunnerLifecycleState.DISCONNECT_PENDING) {
+            return if (event == RunnerLifecycleEvent.DISCONNECT_CLEANUP_CONFIRMED) {
+                RunnerTransitionResult.Accepted(RunnerLifecycleState.UNREGISTERED)
+            } else {
+                RunnerTransitionResult.Denied("Disconnect cleanup is pending")
+            }
+        }
+
         if (event == RunnerLifecycleEvent.AUTH_INVALIDATED) {
             return RunnerTransitionResult.Accepted(RunnerLifecycleState.AUTH_BLOCKED)
         }
@@ -111,14 +121,6 @@ object RunnerLifecycleStateMachine {
                     RunnerTransitionResult.Accepted(RunnerLifecycleState.DISCONNECT_PENDING)
                 RunnerLifecycleState.DISCONNECT_PENDING ->
                     RunnerTransitionResult.Accepted(RunnerLifecycleState.DISCONNECT_PENDING)
-            }
-        }
-
-        if (current == RunnerLifecycleState.DISCONNECT_PENDING) {
-            return if (event == RunnerLifecycleEvent.DISCONNECT_CLEANUP_CONFIRMED) {
-                RunnerTransitionResult.Accepted(RunnerLifecycleState.UNREGISTERED)
-            } else {
-                RunnerTransitionResult.Denied("Disconnect cleanup is pending")
             }
         }
 
