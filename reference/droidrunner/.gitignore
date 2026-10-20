@@ -1,0 +1,21 @@
+*.iml
+.gradle/
+.idea/
+local.properties
+build/
+app/build/
+runtime/out/
+app/src/main/jniLibs/
+*.jks
+*.keystore
+# Signing keys live next to the project; never let one reach a commit.
+*.pem
+*.p12
+*.key
+app/.cxx/
+
+# Agent worktrees are tooling state, not project content.
+.claude/worktrees/
+
+# Python bytecode from tools/
+__pycache__/
