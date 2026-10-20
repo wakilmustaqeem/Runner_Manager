@@ -19,6 +19,9 @@ Status: implementation plan; this document does not enable runner execution, reg
    - Do not dispatch workflows or change repository settings.
 
 2. `CredentialVault`
+   - Initial Android Keystore-backed AES-GCM token vault is implemented in `app/src/main/java/com/fm/runnermanager/security/CredentialVault.kt`.
+   - Activity integration stores tokens encrypted at rest and keeps only the selected account token in memory; on restart the selected saved session is verified against GitHub before being treated as connected.
+   - This implementation has not yet been built or verified on-device. Token revocation/expiry can still require reauthorization, and key invalidation must be handled through safe recovery.
    - Store no credentials until the user explicitly completes authorization.
    - Use Android Keystore-backed encryption for persisted credential material and document token expiry/revocation behavior.
    - Never place tokens, device codes, or authorization headers in logs, diagnostics, clipboard reports, screenshots, source code, or backups.
