@@ -18,7 +18,7 @@ This is an implementation status record, not a claim that the app is production-
 
 - No independent FM runner runtime or process supervisor.
 - No production foreground runner service, watchdog/recovery, job workspace isolation, or actual job-admission hook.
-- No proven compatibility of the official GitHub Actions runner runtime with the target Android 13 ARM64 device.
+- No proven compatibility of the official GitHub Actions runner runtime with the target Android 13 ARM64 device. GitHub lists supported Linux distributions and processor architectures; Android itself is not listed as a supported operating system, and ARM64 Linux is described as public preview. See [GitHub self-hosted runner requirements](https://docs.github.com/en/actions/reference/runners/self-hosted-runners). A compatible Linux userspace/runtime and its isolation limits must be proven before runner activation.
 - No on-device verification of Android Keystore behavior, token restoration, account switching, expiry/revocation, or app-process recreation.
 - No compile/test/APK build verification performed for this change set.
 - No live runner registration or workflow execution.
