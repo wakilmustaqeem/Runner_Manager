@@ -1,0 +1,180 @@
+package io.github.m96chan.droidrunner.runner
+
+import android.content.Context
+
+/** Android `PowerManager` thermal status values, named for readability. */
+object ThermalStatus {
+    const val NONE = 0
+    const val LIGHT = 1
+    const val MODERATE = 2
+    const val SEVERE = 3
+    const val CRITICAL = 4
+
+    fun label(status: Int?): String = when (status) {
+        null -> "unknown"
+        NONE -> "none"
+        LIGHT -> "light"
+        MODERATE -> "moderate"
+        SEVERE -> "severe"
+        CRITICAL -> "critical"
+        5 -> "emergency"
+        else -> "shutdown"
+    }
+}
+
+/** Conditions a device must satisfy before it accepts more CI work. */
+data class AdmissionThresholds(
+    /**
+     * Refuse work whenever the phone is off mains, however full the battery.
+     *
+     * Off by default, because a charged phone is a UPS and holding a fleet the
+     * instant the power flickers is the opposite of what one is for (#185).
+     * Left available for a device that must never run on its own battery.
+     */
+    val requireMains: Boolean = false,
+    /** The floor that matters only once the phone is actually on battery. */
+    val minimumBatteryPercent: Int = 30,
+    /** New jobs are refused once thermal status exceeds this. */
+    val maximumThermalStatus: Int = ThermalStatus.MODERATE,
+    val minimumFreeStorageMb: Int = 2048,
+) {
+    fun save(context: Context) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+            .putBoolean("mains_only", requireMains)
+            .putInt("min_battery", minimumBatteryPercent)
+            .putInt("max_thermal", maximumThermalStatus)
+            .putInt("min_free_mb", minimumFreeStorageMb)
+            .apply()
+    }
+
+    companion object {
+        private const val PREFS = "admission"
+
+        fun load(context: Context): AdmissionThresholds {
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val defaults = AdmissionThresholds()
+            return AdmissionThresholds(
+                // A new key on purpose. The old one meant "hold whenever not
+                // charging" and every existing device has it saved as true;
+                // reading it here would carry that behaviour into a setting
+                // that no longer means the same thing.
+                requireMains = prefs.getBoolean("mains_only", defaults.requireMains),
+                minimumBatteryPercent = prefs.getInt("min_battery", defaults.minimumBatteryPercent),
+                maximumThermalStatus = prefs.getInt("max_thermal", defaults.maximumThermalStatus),
+                minimumFreeStorageMb = prefs.getInt("min_free_mb", defaults.minimumFreeStorageMb),
+            )
+        }
+    }
+}
+
+/** Device conditions sampled at one point in time. */
+data class DeviceConditions(
+    val charging: Boolean,
+    val batteryPercent: Int,
+    /** null when the platform does not report thermal status (API < 29). */
+    val thermalStatus: Int?,
+    val freeStorageMb: Long,
+)
+
+sealed interface Admission {
+    /** The device may accept new jobs. */
+    data object Allowed : Admission
+
+    /** A problem is visible, but has not lasted long enough to stop the listener. */
+    data class Pending(val reason: String) : Admission
+
+    /**
+     * The device must not accept new jobs. [urgent] additionally means an
+     * in-flight job should be abandoned: the phone is too hot to keep going.
+     */
+    data class Blocked(val reason: String, val urgent: Boolean = false) : Admission
+}
+
+/**
+ * Decides whether a device should take on more CI work (issue #2). Pure logic
+ * so the thresholds are testable without a device.
+ *
+ * Jobs are held *between* runs rather than killed mid-flight — a build that
+ * dies halfway wastes the work already done — except when heat reaches the
+ * critical range, where continuing risks the hardware.
+ */
+object AdmissionPolicy {
+
+    const val SAMPLES_BEFORE_HOLD = 3
+
+    enum class ConditionKey { CRITICAL_HEAT, EXCESS_HEAT, MAINS_REQUIRED, LOW_BATTERY, LOW_STORAGE }
+
+    data class State(
+        val reason: String? = null,
+        val consecutiveSamples: Int = 0,
+        val condition: ConditionKey? = null,
+    )
+
+    data class Result(val admission: Admission, val state: State)
+
+    private data class Observation(val condition: ConditionKey, val admission: Admission.Blocked)
+
+    fun evaluate(
+        conditions: DeviceConditions,
+        thresholds: AdmissionThresholds,
+        previous: State = State(),
+    ): Result {
+        val (condition, observed) = observe(conditions, thresholds)
+            ?: return Result(Admission.Allowed, State())
+        if (observed.urgent) {
+            return Result(observed, State(observed.reason, SAMPLES_BEFORE_HOLD, condition))
+        }
+
+        // Measurements may change on every poll while the same problem persists.
+        // Confirm the condition independently of its up-to-date display text.
+        val count = if (previous.condition == condition) {
+            (previous.consecutiveSamples + 1).coerceAtMost(SAMPLES_BEFORE_HOLD)
+        } else 1
+        val state = State(observed.reason, count, condition)
+        return Result(
+            if (count >= SAMPLES_BEFORE_HOLD) observed else Admission.Pending(observed.reason),
+            state,
+        )
+    }
+
+    private fun observe(conditions: DeviceConditions, thresholds: AdmissionThresholds): Observation? {
+        val thermal = conditions.thermalStatus
+        if (thermal != null && thermal >= ThermalStatus.CRITICAL) {
+            return Observation(
+                ConditionKey.CRITICAL_HEAT,
+                Admission.Blocked("thermal ${ThermalStatus.label(thermal)}", urgent = true),
+            )
+        }
+        if (thermal != null && thermal > thresholds.maximumThermalStatus) {
+            return Observation(
+                ConditionKey.EXCESS_HEAT,
+                Admission.Blocked("cooling down (thermal ${ThermalStatus.label(thermal)})"),
+            )
+        }
+        val onBattery = !conditions.charging
+        if (thresholds.requireMains && onBattery) {
+            return Observation(ConditionKey.MAINS_REQUIRED, Admission.Blocked("running on battery"))
+        }
+        // Both halves, not either. Losing mains is not a reason to stop while
+        // the battery still holds hours of work, and a low reading while
+        // plugged in is a battery on its way up (#185).
+        if (onBattery && conditions.batteryPercent < thresholds.minimumBatteryPercent) {
+            return Observation(
+                ConditionKey.LOW_BATTERY,
+                Admission.Blocked(
+                    "on battery, ${conditions.batteryPercent}% below " +
+                        "${thresholds.minimumBatteryPercent}%",
+                ),
+            )
+        }
+        if (conditions.freeStorageMb < thresholds.minimumFreeStorageMb) {
+            return Observation(
+                ConditionKey.LOW_STORAGE,
+                Admission.Blocked(
+                    "free storage ${conditions.freeStorageMb}MB below ${thresholds.minimumFreeStorageMb}MB",
+                ),
+            )
+        }
+        return null
+    }
+}
