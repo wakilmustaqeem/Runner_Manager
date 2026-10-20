@@ -160,7 +160,7 @@ class MainActivity : Activity() {
                     val nextSlot = ids[position]
                     val changed = selectedAccount != nextSlot
                     selectedAccount = nextSlot
-                    if (changed) activateAccountSlot(nextSlot)
+                    if (changed || !githubTokensBySlot.containsKey(nextSlot)) activateAccountSlot(nextSlot)
                     updateRepositorySpinner()
                     updateGitHubConnectionLabel()
                 }
@@ -278,7 +278,7 @@ class MainActivity : Activity() {
             text = "Refresh device metrics"
             setOnClickListener { refreshMetrics(); Toast.makeText(this@MainActivity, "Device metrics refreshed.", Toast.LENGTH_SHORT).show() }
         })
-        root.addView(text("Safety: access token memory-only • no credentials logged • no packages installed • runner controls disabled",
+        root.addView(text("Safety: selected account token encrypted at rest • no credentials logged • no packages installed • runner controls disabled",
             12f, muted, false).apply { setPadding(0, dp(10), 0, 0) })
         styleTree(root)
     }
