@@ -171,6 +171,8 @@ object RunnerLifecycleStateMachine {
                         RunnerTransitionResult.Denied("Verified process and session health evidence required")
                     } else if (!guards.runtimeReadyAndVerified || !guards.admissionPolicyAllowsOperation) {
                         RunnerTransitionResult.Denied("Runtime or admission policy no longer permits start")
+                    } else if (!guards.noOtherJobActive) {
+                        RunnerTransitionResult.Denied("Another job is active")
                     } else RunnerTransitionResult.Accepted(RunnerLifecycleState.RUNNING_CONFIRMED)
                 }
                 RunnerLifecycleEvent.START_FAILED ->
