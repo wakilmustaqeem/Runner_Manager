@@ -178,10 +178,14 @@ class MainActivity : Activity() {
             setOnClickListener { addAccount() }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(4) })
         accountActions.addView(Button(this).apply {
-            text = "Disconnect / remove"
-            setOnClickListener { removeSelectedAccount() }
+            text = "Disconnect"
+            setOnClickListener { disconnectSelectedAccount() }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
-        root.addView(accountActions, marginParams(bottom = 8))
+        root.addView(accountActions, marginParams(bottom = 6))
+        root.addView(Button(this).apply {
+            text = "Remove account slot"
+            setOnClickListener { removeSelectedAccount() }
+        }, marginParams(bottom = 8))
         repoSpinner = Spinner(this).apply {
             onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
                 override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {
@@ -361,6 +365,34 @@ class MainActivity : Activity() {
         logAudit("github_account_entry_added")
         renderDashboard()
         Toast.makeText(this, "Account entry added. Connect it to authorize GitHub.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun disconnectSelectedAccount() {
+        val id = selectedAccount
+        AlertDialog.Builder(this)
+            .setTitle("Disconnect GitHub account?")
+            .setMessage("This removes the saved token and local GitHub session metadata for this slot, but keeps the account slot and its label. It does not revoke the app authorization at GitHub.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Disconnect") { _, _ ->
+                try {
+                    credentialVault.clear(id)
+                    githubTokensBySlot.remove(id)
+                    githubReposBySlot.remove(id)
+                    githubClientIds.remove(id)
+                    githubLoginsBySlot.remove(id)
+                    selectedRepositoryBySlot.remove(id)
+                    preferences.edit().remove(githubLoginKey(id)).remove(githubClientIdKey(id)).apply()
+                    updateRepositorySpinner()
+                    updateGitHubConnectionLabel()
+                    recordActivity("github_account_disconnected_local_session_cleared", "SUCCESS", id)
+                    logAudit("github_account_disconnected_local_session_cleared")
+                    Toast.makeText(this, "Local session cleared. GitHub authorization was not revoked.", Toast.LENGTH_LONG).show()
+                } catch (_: Exception) {
+                    recordActivity("github_account_disconnect_failed", "FAILED", id)
+                    logAudit("github_account_disconnect_failed")
+                    Toast.makeText(this, "Could not confirm secure credential removal. Please retry.", Toast.LENGTH_LONG).show()
+                }
+            }.show()
     }
 
     private fun removeSelectedAccount() {
