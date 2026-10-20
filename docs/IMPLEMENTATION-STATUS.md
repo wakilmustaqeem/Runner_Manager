@@ -14,6 +14,7 @@ This is an implementation status record, not a claim that the app is production-
 - Added a separate Disconnect action that clears the selected slot's local session while preserving the account slot and label; GitHub-side app authorization is not revoked.
 - Credential deletion is checked; if encrypted storage deletion fails, the in-memory token is cleared and account-slot removal is blocked rather than silently claiming success.
 - Corrected a Device Flow completion race so authorization finishing for an inactive slot does not clear the currently selected account's in-memory token.
+- Persisted the public GitHub App Client ID with the slot's local session metadata, so a developer-configured Client ID can be used when restoring the encrypted token after process recreation.
 - Existing runner Start/Stop controls remain disabled.
 - Policy evaluator exists, but it is not wired into a real job-admission boundary.
 
