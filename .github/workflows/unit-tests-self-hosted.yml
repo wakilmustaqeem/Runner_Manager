@@ -36,6 +36,32 @@ jobs:
           set -euo pipefail
           sdkmanager --install "platforms;android-35" "build-tools;35.0.1"
 
+      - name: Download and prepare Gradle 8.9 in runner temp
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/gradle-8.9-bin.zip"
+          staging="$RUNNER_TEMP/gradle-8.9-extract"
+          install_dir="$RUNNER_TEMP/gradle-8.9"
+          jar="$JAVA_HOME/bin/jar"
+          [ -x "$jar" ] || { echo "Java jar tool not found at $jar"; exit 1; }
+          mkdir -p "$staging"
+          curl --fail --location --show-error \
+            --connect-timeout 30 --max-time 900 \
+            --retry 5 --retry-all-errors --retry-delay 10 \
+            "https://services.gradle.org/distributions/gradle-8.9-bin.zip" \
+            --output "$archive"
+          "$jar" tf "$archive" > "$RUNNER_TEMP/gradle-8.9-entries.txt"
+          (cd "$staging" && "$jar" xf "$archive")
+          [ -f "$staging/gradle-8.9/bin/gradle" ] || {
+            echo "Gradle launcher missing after extraction."
+            exit 1
+          }
+          chmod +x "$staging/gradle-8.9/bin/gradle"
+          mv "$staging/gradle-8.9" "$install_dir"
+          echo "$install_dir/bin" >> "$GITHUB_PATH"
+          "$install_dir/bin/gradle" --version
+
       - name: Run unit tests only (no APK assembly or upload)
         shell: bash
         run: |
