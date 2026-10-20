@@ -11,6 +11,8 @@ This is an implementation status record, not a claim that the app is production-
 - Android Keystore-backed AES-GCM credential vault at `app/src/main/java/com/fm/runnermanager/security/CredentialVault.kt`.
 - Encrypted token persistence by account slot; the Activity clears its in-memory token map on account switching and loads/verifies only the selected account's saved token.
 - Account removal clears the selected slot's encrypted token and stored local identity/client-ID metadata.
+- Added a separate Disconnect action that clears the selected slot's local session while preserving the account slot and label; GitHub-side app authorization is not revoked.
+- Corrected a Device Flow completion race so authorization finishing for an inactive slot does not clear the currently selected account's in-memory token.
 - Existing runner Start/Stop controls remain disabled.
 - Policy evaluator exists, but it is not wired into a real job-admission boundary.
 
