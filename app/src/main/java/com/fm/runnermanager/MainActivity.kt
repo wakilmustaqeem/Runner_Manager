@@ -587,8 +587,10 @@ class MainActivity : Activity() {
                         }
                         runOnUiThread {
                             if (isFinishing || isDestroyed) return@runOnUiThread
-                            githubTokensBySlot.clear()
-                            if (selectedAccount == slot) githubTokensBySlot[slot] = token
+                            if (selectedAccount == slot) {
+                                githubTokensBySlot.clear()
+                                githubTokensBySlot[slot] = token
+                            }
                             githubReposBySlot[slot] = repos
                             githubLoginsBySlot[slot] = identity.login
                             preferences.edit().putString(githubLoginKey(slot), identity.login).apply()
