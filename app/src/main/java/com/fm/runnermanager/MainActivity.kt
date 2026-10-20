@@ -550,7 +550,7 @@ class MainActivity : Activity() {
                         .setMessage("Open " + device.verificationUri + "\nEnter one-time code:\n" + device.userCode + "\n\nApprove only the intended GitHub account.")
                         .setPositiveButton("Open page & wait") { _, _ ->
                             try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(device.verificationUri))) } catch (_: Exception) { }
-                            pollDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot)
+                            pollDeviceFlow(client, clientId, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot)
                         }
                         .setNeutralButton("I've opened it") { _, _ -> pollDeviceFlow(client, device.deviceCode, device.expiresInSeconds, device.intervalSeconds, slot) }
                         .setNegativeButton("Cancel") { _, _ ->
@@ -569,7 +569,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun pollDeviceFlow(client: GitHubDeviceFlowClient, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int) {
+    private fun pollDeviceFlow(client: GitHubDeviceFlowClient, clientId: String, deviceCode: String, expiresIn: Long, initialInterval: Long, slot: Int) {
         githubStatusLabel?.text = "GitHub connection: Waiting for browser approval…"
         githubExecutor.execute {
             val deadline = System.currentTimeMillis() + expiresIn.coerceAtLeast(1L) * 1000L
@@ -602,7 +602,11 @@ class MainActivity : Activity() {
                             }
                             githubReposBySlot[slot] = repos
                             githubLoginsBySlot[slot] = identity.login
-                            preferences.edit().putString(githubLoginKey(slot), identity.login).apply()
+                            githubClientIds[slot] = clientId
+                            preferences.edit()
+                                .putString(githubLoginKey(slot), identity.login)
+                                .putString(githubClientIdKey(slot), clientId)
+                                .apply()
                             githubAccountSpinner?.adapter = neonAdapter(accountLabels())
                             githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
                             if (selectedAccount == slot) {
