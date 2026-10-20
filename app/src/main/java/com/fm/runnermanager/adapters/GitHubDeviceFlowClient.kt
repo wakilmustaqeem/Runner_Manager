@@ -158,6 +158,43 @@ class GitHubDeviceFlowClient(
         }
     }
 
+    /**
+     * Requests a short-lived repository-scoped Actions runner registration token.
+     *
+     * This only obtains the one-hour registration credential; it does NOT install,
+     * configure, launch, or verify a runner runtime. The caller must keep the token
+     * in memory only, never log it, and pass it only to a verified local runtime.
+     * The GitHub authorization must have the required repository administration
+     * permission. GitHub may reject the request if the OAuth grant is insufficient.
+     */
+    data class RunnerRegistrationToken(
+        val token: String,
+        val expiresAt: String?
+    )
+
+    fun requestRepositoryRunnerRegistrationToken(
+        accessToken: String,
+        owner: String,
+        repo: String
+    ): RunnerRegistrationToken {
+        requireSafePathPart(owner)
+        requireSafePathPart(repo)
+        require(accessToken.isNotBlank()) { "Authorization required" }
+        val json = request(
+            "https://api.github.com/repos/$owner/$repo/actions/runners/registration-token",
+            "POST",
+            null,
+            accessToken,
+            acceptJson = true
+        ).let(::JSONObject)
+        val token = json.optString("token").takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("GitHub did not return a runner registration token")
+        return RunnerRegistrationToken(
+            token = token,
+            expiresAt = json.optString("expires_at").takeIf { it.isNotBlank() && it != "null" }
+        )
+    }
+
     fun runners(accessToken: String, owner: String, repo: String): List<Runner> {
         requireSafePathPart(owner)
         requireSafePathPart(repo)
