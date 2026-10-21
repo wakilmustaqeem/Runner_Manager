@@ -61,7 +61,7 @@ internal class RunnerProcessSupervisor(
             lastExitCode = runCatching { current.exitValue() }.getOrNull()
             process = null
         }
-        check(outputSink.isFile && outputSink.canWrite()) {
+        check(outputSink.exists() && outputSink.canWrite()) {
             "Runner output sink is unavailable"
         }
 
