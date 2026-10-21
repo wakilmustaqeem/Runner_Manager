@@ -75,7 +75,47 @@ object InstalledRuntimeStore {
     fun readActive(appPrivateRoot: File): ActiveInstalledRuntime? {
         if (!appPrivateRoot.isDirectory || Files.isSymbolicLink(appPrivateRoot.toPath())) return null
         val root = runCatching { appPrivateRoot.canonicalFile }.getOrNull() ?: return null
+        return runCatching { readPointerFile(root, File(root, POINTER_NAME)) }.getOrNull()
+    }
+
+    /**
+     * Strict read for installation/rollback decisions. A present but invalid active
+     * pointer must never silently reset the anti-rollback floor to zero. If a process
+     * died between pointer renames, restore a validated previous pointer; on a first
+     * install, a validated pending pointer can be completed when no backup exists.
+     */
+    @Synchronized
+    fun readActiveForInstall(appPrivateRoot: File): ActiveInstalledRuntime? {
+        if (!appPrivateRoot.isDirectory || Files.isSymbolicLink(appPrivateRoot.toPath())) {
+            throw SecurityException("Runtime root must be a real app-private directory")
+        }
+        val root = appPrivateRoot.canonicalFile
         val pointer = File(root, POINTER_NAME)
+        val backup = File(root, BACKUP_NAME)
+        val pending = File(root, PENDING_NAME)
+
+        if (pointer.exists() || Files.isSymbolicLink(pointer.toPath())) {
+            return readPointerFile(root, pointer)
+                ?: throw SecurityException("Active runtime pointer exists but is invalid; refusing rollback-floor reset")
+        }
+
+        if (backup.exists() || Files.isSymbolicLink(backup.toPath())) {
+            val previous = readPointerFile(root, backup)
+                ?: throw SecurityException("Previous runtime pointer is invalid; refusing installation")
+            if (!backup.renameTo(pointer)) throw IOException("Unable to recover previous runtime pointer")
+            return previous
+        }
+
+        if (pending.exists() || Files.isSymbolicLink(pending.toPath())) {
+            val staged = readPointerFile(root, pending)
+                ?: throw SecurityException("Pending runtime pointer is invalid; refusing installation")
+            if (!pending.renameTo(pointer)) throw IOException("Unable to recover pending runtime pointer")
+            return staged
+        }
+        return null
+    }
+
+    private fun readPointerFile(root: File, pointer: File): ActiveInstalledRuntime? {
         if (!pointer.isFile || Files.isSymbolicLink(pointer.toPath())) return null
         return try {
             val json = JSONObject(pointer.readText(Charsets.UTF_8))
