@@ -24,6 +24,7 @@ import java.security.MessageDigest
  * }
  */
 object RuntimeArtifactStager {
+    private val SHA256_HEX = Regex("^[0-9a-fA-F]{64}$")
     data class StagedArtifact(
         val version: Long,
         val file: File,
@@ -145,13 +146,14 @@ object RuntimeArtifactStager {
         val partial = File.createTempFile("runtime-$version-", ".part", stagingDir)
 
         try {
-            downloadExact(archiveUrl, partial, archiveBytes, maxArchiveBytes)
-            val actual = RuntimePreflight.sha256(partial)
-            if (!MessageDigest.isEqual(
-                    actual.lowercase().toByteArray(Charsets.US_ASCII),
-                    expectedSha256.lowercase().toByteArray(Charsets.US_ASCII),
-                )
-            ) throw SecurityException("Runtime archive SHA-256 mismatch")
+            downloadExact(
+                archiveUrl,
+                partial,
+                archiveBytes,
+                maxArchiveBytes,
+                expectedSha256,
+            )
+            val actual = expectedSha256.lowercase()
             if (!partial.renameTo(ready)) throw IOException("Unable to finalize staged archive")
             return StagedArtifact(version, ready, actual, archiveBytes)
         } catch (error: Exception) {
@@ -199,29 +201,61 @@ object RuntimeArtifactStager {
         }
     }
 
-    private fun downloadExact(url: String, destination: File, expectedBytes: Long, maxBytes: Long) {
+    private fun downloadExact(
+        url: String,
+        destination: File,
+        expectedBytes: Long,
+        maxBytes: Long,
+        expectedSha256: String,
+    ) {
         if (expectedBytes > maxBytes) throw IOException("Archive exceeds configured size limit")
+        if (!SHA256_HEX.matches(expectedSha256)) {
+            throw SecurityException("Invalid expected SHA-256")
+        }
+
         val connection = openHttps(url)
         try {
             val declared = connection.contentLengthLong
             if (declared >= 0L && declared != expectedBytes) {
                 throw IOException("Archive Content-Length does not match signed manifest")
             }
+
+            val digest = MessageDigest.getInstance("SHA-256")
+            var total = 0L
             connection.inputStream.use { input ->
                 destination.outputStream().buffered().use { output ->
                     val buffer = ByteArray(64 * 1024)
-                    var total = 0L
                     while (true) {
                         val count = input.read(buffer)
                         if (count < 0) break
-                        total += count
-                        if (total > expectedBytes || total > maxBytes) {
+
+                        // total never exceeds either bound; subtract before adding to avoid overflow.
+                        if (count.toLong() > expectedBytes - total ||
+                            count.toLong() > maxBytes - total
+                        ) {
                             throw IOException("Archive exceeded signed size limit")
                         }
+
+                        digest.update(buffer, 0, count)
                         output.write(buffer, 0, count)
+                        total += count
                     }
-                    if (total != expectedBytes) throw IOException("Archive size does not match signed manifest")
                 }
+            }
+
+            if (total != expectedBytes) {
+                throw IOException("Archive size does not match signed manifest")
+            }
+
+            val actualSha256 = digest.digest().joinToString("") {
+                "%02x".format(java.util.Locale.ROOT, it.toInt() and 0xFF)
+            }
+            if (!MessageDigest.isEqual(
+                    actualSha256.toByteArray(Charsets.US_ASCII),
+                    expectedSha256.lowercase().toByteArray(Charsets.US_ASCII),
+                )
+            ) {
+                throw SecurityException("Runtime archive SHA-256 mismatch")
             }
         } finally {
             connection.disconnect()
