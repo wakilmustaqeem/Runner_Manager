@@ -126,3 +126,49 @@ Startup recovery will call `RuntimePointerTransaction.recover()`.
 - Verification: fetched both changed files from the branch and confirmed the panel, refresh hook, README note, and history link are present.
 - Build, unit tests, GitHub Actions, and device runtime verification were not run.
 
+---
+
+## Known issues (as of 2026-10-21)
+
+### KI-1 (P2) — Clear History leaves stale dashboard preview
+
+- Commit where introduced: `3e731c6c969209ce8d811e0823ebcc79c73b6a0c`
+  (`feat(history): show recent activity on app startup`)
+- File: `app/src/main/java/com/fm/runnermanager/MainActivity.kt`
+- Symptom: After "Clear History" confirmation, dashboard still shows the
+  previously rendered preview until next activity restart.
+- Cause: the Clear History handler removes `entries` from
+  `historyPreferences` but does not call `refreshStartupHistoryPreview()`
+  (which exists at ~line 887–889). The normal write path in
+  `logHistory()` DOES call `refreshStartupHistoryPreview()`, so only the
+  clear path is affected.
+- Fix: add `refreshStartupHistoryPreview()` in the clear handler
+  (patch pending).
+- Severity: P2 (visual/state inconsistency; no data loss, no security
+  impact).
+- Status: **NOT FIXED, NOT BUILT, NOT TESTED.**
+
+### KI-2 (P3, optional) — No onResume refresh
+
+- Same file.
+- Symptom: out-of-band history changes (other process, restore) may leave
+  the dashboard preview stale on resume.
+- Fix: call `refreshStartupHistoryPreview()` in `onResume()`.
+- Status: NOT IMPLEMENTED. Decision deferred until a concrete need is
+  identified.
+
+### Additional notes
+
+- Malformed entries in `local_activity_history` use `getOrElse()` fallbacks
+  but no full schema validation — minor P3 concern, not scheduled.
+- Thread affinity of history write/read call sites is NOT verified.
+- Device-level UI behavior (long entries, overflow, rotation, empty state)
+  has NOT been verified on hardware.
+
+### Verification status for Startup History
+
+- Commit `3e731c6`: identified, source reviewed read-only.
+- Build: **NOT RUN.**
+- Unit tests: **NOT RUN.**
+- GitHub Actions: **NOT RUN.**
+- On-device UI behavior: **NOT VERIFIED.**
