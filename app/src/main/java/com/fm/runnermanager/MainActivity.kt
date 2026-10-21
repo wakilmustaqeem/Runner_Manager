@@ -32,6 +32,7 @@ import android.widget.TextView
 import android.widget.Toast
 import com.fm.runnermanager.adapters.GitHubDeviceFlowClient
 import com.fm.runnermanager.security.SecureGitHubSessionStore
+import com.fm.runnermanager.runtime.InstalledRuntimeStore
 import java.util.concurrent.Executors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -82,6 +83,8 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Runtime pointers live in app-private filesDir; recover before any runtime use.
+        InstalledRuntimeStore.recoverOnStartup(filesDir)
         renderDashboard()
         refreshMetrics()
         restoreSavedSessions()

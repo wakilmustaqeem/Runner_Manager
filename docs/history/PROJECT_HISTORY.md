@@ -66,10 +66,20 @@ Build/Actions NOT run. `InstalledRuntimeStore.kt` was not changed.
 
 ## Pending
 
-### Commit B — Installer adapter (NOT STARTED)
-Will modify `InstalledRuntimeStore.installAndActivate(...)` to call
-`RuntimePointerTransaction.writeActive(...)` after extraction+validation.
-Startup recovery will call `RuntimePointerTransaction.recover()`.
+### Commit B — Installer adapter (completed in source; not verified by build/tests)
+Commit: `d549a108b4ab77b7f52be5510040f5d4d527838f`
+Files:
+- `app/src/main/java/com/fm/runnermanager/runtime/InstalledRuntimeStore.kt`
+- `app/src/test/java/com/fm/runnermanager/runtime/InstalledRuntimeStoreAdapterTest.kt`
+
+- `installAndActivate(...)` delegates pointer publication to
+  `RuntimePointerTransaction.writeActive(...)`; v2 pointer only.
+- `readActive()` parses v2 through `RuntimePointer.parse()`; v1 returns null.
+- `readActiveForInstall()` returns null only when no transaction artefacts
+  exist; otherwise delegates recovery and throws on `SafeFailure`.
+- `recoverOnStartup()` is non-throwing and returns null on `SafeFailure`.
+- Removed legacy `readPointerFile()` and `writePointerTransactionally()`.
+- Adapter test source added. Build/tests/Actions NOT RUN.
 
 ## Bugs found and fixed during design
 
@@ -99,9 +109,9 @@ Startup recovery will call `RuntimePointerTransaction.recover()`.
 
 ## Next steps
 
-1. Commit B (adapter) — modify `InstalledRuntimeStore.kt`, add startup
-   recovery call site.
-2. User-granted build/test run (separate approval).
+1. Commit C — wire non-throwing startup recovery and record the v1→v2
+   pointer migration behavior.
+2. User-approved build/test run (separate approval).
 3. Android device verification.
 4. Signed runtime bootstrap (production keys, not in repo).
 
@@ -142,11 +152,11 @@ Startup recovery will call `RuntimePointerTransaction.recover()`.
   (which exists at ~line 887–889). The normal write path in
   `logHistory()` DOES call `refreshStartupHistoryPreview()`, so only the
   clear path is affected.
-- Fix: add `refreshStartupHistoryPreview()` in the clear handler
-  (patch pending).
+- Fix: Commit F1 `9861c2ce939d8644913084a9cdbd18b3181661ad` adds
+  `refreshStartupHistoryPreview()` to the clear handler.
 - Severity: P2 (visual/state inconsistency; no data loss, no security
   impact).
-- Status: **NOT FIXED, NOT BUILT, NOT TESTED.**
+- Status: **FIXED IN SOURCE; NOT BUILT, NOT TESTED.**
 
 ### KI-2 (P3, optional) — No onResume refresh
 
@@ -172,3 +182,19 @@ Startup recovery will call `RuntimePointerTransaction.recover()`.
 - Unit tests: **NOT RUN.**
 - GitHub Actions: **NOT RUN.**
 - On-device UI behavior: **NOT VERIFIED.**
+
+
+### Upgrade: v1 pointer → v2 pointer (Commit B behavior)
+
+- Commit B writes pointer schemaVersion=2 only through
+  `RuntimePointerTransaction.writeActive()`.
+- A pre-existing v1 pointer is treated as invalid:
+  - `readActive()` → null
+  - `readActiveForInstall()` → throws `SecurityException` on `SafeFailure`
+  - `recoverOnStartup()` → null on `SafeFailure`
+- No automatic migration. Callers must treat null/SafeFailure as requiring
+  a runtime reinstall; rollback-floor reset is refused by install path.
+- This is intentional fail-closed behavior. Migration code is out of scope.
+- No startup recovery call site existed before Commit C; Commit C wires
+  recovery in `MainActivity.onCreate()` using app-private `filesDir`.
+- Build, unit tests, GitHub Actions, and device verification remain NOT RUN.
