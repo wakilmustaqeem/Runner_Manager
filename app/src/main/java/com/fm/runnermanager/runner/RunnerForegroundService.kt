@@ -30,6 +30,7 @@ class RunnerForegroundService : Service() {
         const val ACTION_STOP = "com.fm.runnermanager.runner.STOP"
         const val ACTION_STATUS = "com.fm.runnermanager.runner.STATUS"
         const val EXTRA_STATUS = "runner_status"
+        private const val EXTRA_USER_CONFIRMED = "explicit_user_confirmation"
         private const val CHANNEL_ID = "fm_runner_status"
         private const val NOTIFICATION_ID = 2401
         @Volatile private var commandProvider: CommandProvider? = null
@@ -40,14 +41,22 @@ class RunnerForegroundService : Service() {
             commandProvider = provider
         }
 
-        fun requestStart(context: Context) {
-            val intent = Intent(context, RunnerForegroundService::class.java).setAction(ACTION_START)
+        fun requestStart(context: Context, explicitUserConfirmation: Boolean) {
+            require(explicitUserConfirmation) { "Explicit user confirmation is required" }
+            val intent = Intent(context, RunnerForegroundService::class.java)
+                .setAction(ACTION_START)
+                .putExtra(EXTRA_USER_CONFIRMED, true)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) context.startForegroundService(intent)
             else context.startService(intent)
         }
 
-        fun requestStop(context: Context) {
-            context.startService(Intent(context, RunnerForegroundService::class.java).setAction(ACTION_STOP))
+        fun requestStop(context: Context, explicitUserConfirmation: Boolean) {
+            require(explicitUserConfirmation) { "Explicit user confirmation is required" }
+            context.startService(
+                Intent(context, RunnerForegroundService::class.java)
+                    .setAction(ACTION_STOP)
+                    .putExtra(EXTRA_USER_CONFIRMED, true)
+            )
         }
     }
 
@@ -60,6 +69,10 @@ class RunnerForegroundService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                if (intent?.getBooleanExtra(EXTRA_USER_CONFIRMED, false) != true) {
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
                 runCatching { supervisor?.stop(explicitUserConfirmation = true) }
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf(startId)
@@ -74,9 +87,15 @@ class RunnerForegroundService : Service() {
             ACTION_START, null -> {
                 // Android requires a timely foreground notification before longer work.
                 startForeground(NOTIFICATION_ID, notification("Checking runner readiness…"))
+                if (intent?.getBooleanExtra(EXTRA_USER_CONFIRMED, false) != true) {
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelf(startId)
+                    return START_NOT_STICKY
+                }
                 val provider = commandProvider
                 if (provider == null) {
                     updateNotification("Blocked: runner runtime/registration integration is not configured")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
@@ -90,6 +109,7 @@ class RunnerForegroundService : Service() {
                 }
                 if (result.isFailure) {
                     updateNotification("Runner not started: readiness check failed")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelf(startId)
                     return START_NOT_STICKY
                 }
@@ -108,6 +128,7 @@ class RunnerForegroundService : Service() {
     override fun onDestroy() {
         runCatching { supervisor?.stop(explicitUserConfirmation = true) }
         supervisor = null
+        stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
     }
 
