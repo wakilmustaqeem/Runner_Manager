@@ -49,6 +49,7 @@ class GitHubRunnerRegistrationCoordinator(
         clientId: String,
         owner: String,
         repo: String,
+        expectedLogin: String,
         explicitUserConfirmation: Boolean,
         repositoryAdministrationPermissionConfirmed: Boolean,
     ): OneShotGrant {
@@ -58,6 +59,9 @@ class GitHubRunnerRegistrationCoordinator(
         }
         require(slot > 0) { "Account slot must be positive" }
         require(clientId.isNotBlank()) { "GitHub App Client ID is required" }
+        require(expectedLogin.matches(Regex("[A-Za-z0-9-]+"))) {
+            "Expected GitHub login is required"
+        }
         require(owner.matches(Regex("[A-Za-z0-9_.-]+")) && owner != "." && owner != "..") {
             "Invalid repository owner"
         }
@@ -71,6 +75,9 @@ class GitHubRunnerRegistrationCoordinator(
         val accessToken = validAccessToken(saved, client, slot)
         val identity = client.identity(accessToken)
         require(identity.login.isNotBlank()) { "GitHub identity could not be verified" }
+        require(identity.login.equals(expectedLogin, ignoreCase = true)) {
+            "Selected GitHub account does not match the expected login; refusing registration grant"
+        }
 
         // This POST only mints a short-lived registration credential. Never log it.
         val grant = client.requestRepositoryRunnerRegistrationToken(accessToken, owner, repo)
