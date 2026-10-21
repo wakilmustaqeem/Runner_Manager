@@ -18,6 +18,14 @@ class RunnerActivationGateTest {
         registrationGrantAvailable = true,
     )
 
+    private fun assertRepositoryBlocked(evidence: RunnerActivationGate.Evidence) {
+        val decision = RunnerActivationGate.evaluate(evidence)
+        assertFalse(decision.allowed)
+        assertTrue(
+            RunnerActivationGate.Blocker.REPOSITORY_NOT_VERIFIED in decision.blockers
+        )
+    }
+
     @Test
     fun completeEvidenceAllowsActivation() {
         val decision = RunnerActivationGate.evaluate(readyEvidence())
@@ -61,13 +69,22 @@ class RunnerActivationGateTest {
 
     @Test
     fun malformedRepositoryPathSegmentsBlockActivation() {
-        val decision = RunnerActivationGate.evaluate(
-            readyEvidence().copy(repositoryName = "owner/repository")
-        )
+        assertRepositoryBlocked(readyEvidence().copy(repositoryName = "owner/repository"))
+        assertRepositoryBlocked(readyEvidence().copy(repositoryOwner = ""))
+        assertRepositoryBlocked(readyEvidence().copy(repositoryName = ""))
+        assertRepositoryBlocked(readyEvidence().copy(repositoryOwner = "."))
+        assertRepositoryBlocked(readyEvidence().copy(repositoryName = ".."))
+        assertRepositoryBlocked(readyEvidence().copy(repositoryName = "."))
+        assertRepositoryBlocked(readyEvidence().copy(repositoryOwner = "owner/name"))
+    }
 
-        assertFalse(decision.allowed)
-        assertTrue(
-            RunnerActivationGate.Blocker.REPOSITORY_NOT_VERIFIED in decision.blockers
+    @Test
+    fun overlongGitHubOwnerAndRepositoryNamesBlockActivation() {
+        assertRepositoryBlocked(
+            readyEvidence().copy(repositoryOwner = "a".repeat(40))
+        )
+        assertRepositoryBlocked(
+            readyEvidence().copy(repositoryName = "r".repeat(101))
         )
     }
 
