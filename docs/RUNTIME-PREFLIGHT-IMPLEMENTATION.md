@@ -18,6 +18,7 @@ This milestone adds fail-closed runtime preflight, detached manifest-signature v
 - Adds `RuntimeTarGzExtractor` using Apache Commons Compress for streaming TAR.GZ decoding. It enforces path/entry/byte limits, blocks hard links and special entries, maps only in-rootfs symlinks to relative guest paths, preserves executable bits, rejects entries beneath earlier symlinks, and attempts rollback of created paths on failure.
 - Adds `RuntimeArchiveInstaller`, which rechecks staged archive size and SHA-256, extracts to a fresh sibling staging directory, requires a real `rootfs` directory, refuses to overwrite an existing runtime directory, and publishes the complete extraction only after validation.
 - Adds `InstalledRuntimeStore`, which publishes a separate pointer only after a verified archive has been extracted and the installed directory has a real `rootfs`. It refuses to reuse a pre-existing install directory based only on its digest-like name; its pointer is metadata only and does not launch anything.
+- Adds `RuntimeInstallCoordinator` to order the arm64/configuration gate, signed-manifest staging, post-manifest storage preflight, verified extraction, and installed-pointer publication. Missing FM key/signature/HTTPS URL or unsupported ABI fails before network access.
 - Adds test source for preflight, digest/signature verification, path policy, staged-archive metadata, TAR.GZ extraction, installer success/failure boundaries, and installed-runtime pointer validation. These tests have not been run.
 
 ## Manifest contract
@@ -28,7 +29,7 @@ The stager expects signed UTF-8 JSON with `schemaVersion`, `version`, `expiresAt
 
 - `SafeRuntimeExtractor` remains a generic regular-file-only sink and is not the installer path for TAR.GZ runtime bundles. The TAR.GZ parser is now present, but the combined code remains uncompiled and untested.
 - TAR.GZ extraction does not preserve ownership, timestamps, capabilities, device nodes, or arbitrary special metadata. Hard links and special entries are rejected. Symlink handling is restricted to paths within `rootfs` and needs testing against the exact upstream archive.
-- `RuntimeArchiveInstaller` and `InstalledRuntimeStore` now provide separate install and installed-directory pointer APIs, but the installer state machine is not connected to the UI, `RuntimeActivationStore`, or a PRoot launch adapter. The staged-archive pointer and installed-runtime pointer are distinct formats and must not be confused.
+- `RuntimeArchiveInstaller`, `InstalledRuntimeStore`, and `RuntimeInstallCoordinator` now provide a callable installation pipeline, but it is not connected to the UI, `RuntimeActivationStore`, or a PRoot launch adapter. The caller must provide the detached manifest signature and trusted FM public key. The staged-archive pointer and installed-runtime pointer are distinct formats and must not be confused.
 - `RuntimeActivationStore` switches metadata only. It does not unpack or execute a runtime and must not be treated as proof that a runner is online.
 - No production FM signing key, signed manifest/archive, PRoot binary or loader is configured or packaged.
 - No runner configuration/token exchange, foreground service, actual Start/Stop, boot recovery, or process supervision is wired.
