@@ -43,6 +43,28 @@ class InstalledRuntimeStoreTest {
         }
     }
 
+    @Test fun recoversPreviousPointerAfterInterruptedPublication() {
+        withArtifact { artifact, root ->
+            val active = InstalledRuntimeStore.installAndActivate(root, artifact)
+            val pointer = File(root, "active-installed-runtime.json")
+            val backup = File(root, "active-installed-runtime.json.previous")
+            assertTrue(pointer.renameTo(backup))
+
+            assertEquals(active, InstalledRuntimeStore.readActiveForInstall(root))
+            assertEquals(active, InstalledRuntimeStore.readActive(root))
+            assertFalse(backup.exists())
+        }
+    }
+
+    @Test fun refusesInvalidActivePointerInsteadOfResettingRollbackFloor() {
+        withArtifact { _, root ->
+            File(root, "active-installed-runtime.json").writeText("{broken")
+            assertNull(InstalledRuntimeStore.readActive(root))
+            assertFalse(runCatching { InstalledRuntimeStore.readActiveForInstall(root) }.isSuccess)
+        }
+    }
+
+
     private fun withArtifact(block: (RuntimeArtifactStager.StagedArtifact, File) -> Unit) {
         val root = Files.createTempDirectory("fm-installed-runtime-test-").toFile()
         val archive = File(root, "runtime.tar.gz")
