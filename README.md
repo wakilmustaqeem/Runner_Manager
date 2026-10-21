@@ -12,7 +12,8 @@
 - Android version/API, supported ABI, internal storage, available RAM, and external-storage-state diagnostics.
 - Copy diagnostics report to clipboard by explicit user action.
 - Local metadata-only audit log for account-label changes and report copies.
-- GitHub App Device Flow and read-only metadata are available in the current code; tokens remain in memory only. No package installation, runner registration, workflow dispatch, or runner Start/Stop is implemented.
+- GitHub App Device Flow and read-only metadata are available. An implementation branch now stores each account's OAuth session as AES-GCM ciphertext with an independent Android Keystore key, restores saved sessions after app restart, and attempts refresh-token renewal when the GitHub App returns expiring user tokens.
+- This session work is not runner registration. Runtime download/verification, packaged PRoot native libraries, local runner configuration, foreground process supervision, real Start/Stop, and boot recovery remain unimplemented and must stay visibly blocked until each is verified. No workflow dispatch is implemented.
 
 ## Purpose
 
@@ -41,6 +42,8 @@ See [GITHUB-RUNNER-ADAPTER-DESIGN.md](docs/GITHUB-RUNNER-ADAPTER-DESIGN.md) for 
 The UI upgrade is being promoted to `main` through a dedicated integration branch; device-level GitHub Device Flow verification remains pending.
 
 - Dark navy dashboard with cyan accent, rounded panels, and quick access to History and Audit Log.
+- Startup Recent History panel shows the latest four metadata-only activity entries and refreshes as new actions are recorded; `Open full History` opens the searchable/filterable history view.
+- [Project History](docs/history/PROJECT_HISTORY.md) records implementation milestones, decisions, verification status, and next steps.
 - Local Activity History: timestamp, action, result, and account slot; search; explicit date filter; action/result filters; copy filtered results; CSV-style export/share; confirmation before clearing.
 - History is stored separately from the security Audit Log. Clearing History does not clear Audit Log.
 - Device diagnostics, four account-label slots, runner/job availability notice, disabled Start/Stop controls, power/job policy preferences, refresh, and copy diagnostics remain present.

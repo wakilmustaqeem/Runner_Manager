@@ -37,7 +37,7 @@ class ProotRunnerCommandTest {
         )
         val command = builder.command()
         assertTrue(command.contains("--unattended"))
-        assertTrue(command.contains("--replace"))
+        assertFalse(command.contains("--replace"))
         assertTrue(command.contains("--url"))
         assertTrue(command.contains("--token"))
         assertTrue(command.contains("test-registration-token"))

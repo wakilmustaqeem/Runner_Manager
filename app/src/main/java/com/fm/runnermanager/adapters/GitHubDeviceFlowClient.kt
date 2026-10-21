@@ -35,6 +35,9 @@ class GitHubDeviceFlowClient(
 
     data class TokenPoll(
         val accessToken: String? = null,
+        val refreshToken: String? = null,
+        val expiresInSeconds: Long? = null,
+        val refreshTokenExpiresInSeconds: Long? = null,
         val error: String? = null,
         val intervalSeconds: Long? = null
     )
@@ -101,8 +104,32 @@ class GitHubDeviceFlowClient(
         val token = json.optString("access_token").takeIf { it.isNotBlank() }
         return TokenPoll(
             accessToken = token,
+            refreshToken = json.optString("refresh_token").takeIf { it.isNotBlank() && it != "null" },
+            expiresInSeconds = json.optLong("expires_in", 0L).takeIf { it > 0L },
+            refreshTokenExpiresInSeconds = json.optLong("refresh_token_expires_in", 0L).takeIf { it > 0L },
             error = json.optString("error").takeIf { it.isNotBlank() },
             intervalSeconds = json.optLong("interval", 0L).takeIf { it > 0L }
+        )
+    }
+
+    /** Exchange a refresh token for a new short-lived access token when the GitHub App supports expiring user tokens. */
+    fun refreshUserToken(refreshToken: String): TokenPoll {
+        require(refreshToken.isNotBlank()) { "Refresh token is required" }
+        val json = postForm(
+            "https://github.com/login/oauth/access_token",
+            mapOf(
+                "client_id" to clientId,
+                "grant_type" to "refresh_token",
+                "refresh_token" to refreshToken
+            ),
+            acceptJson = true
+        )
+        return TokenPoll(
+            accessToken = json.optString("access_token").takeIf { it.isNotBlank() },
+            refreshToken = json.optString("refresh_token").takeIf { it.isNotBlank() && it != "null" },
+            expiresInSeconds = json.optLong("expires_in", 0L).takeIf { it > 0L },
+            refreshTokenExpiresInSeconds = json.optLong("refresh_token_expires_in", 0L).takeIf { it > 0L },
+            error = json.optString("error").takeIf { it.isNotBlank() }
         )
     }
 

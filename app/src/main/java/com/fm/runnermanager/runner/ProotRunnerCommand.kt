@@ -46,7 +46,7 @@ internal object ProotRunnerCommand {
             "Registration token is required"
         }
         val args = mutableListOf(
-            "/home/runner/config.sh", "--unattended", "--replace",
+            "/home/runner/config.sh", "--unattended",
             "--url", repositoryUrl, "--token", token,
             "--name", runnerName, "--labels", labels.sorted().joinToString(","),
             "--work", "_work"
