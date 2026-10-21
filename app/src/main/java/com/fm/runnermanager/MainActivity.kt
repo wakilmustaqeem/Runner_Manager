@@ -488,13 +488,13 @@ class MainActivity : Activity() {
                     if (!token.isNullOrBlank()) {
                         val identity = client.identity(token)
                         val repos = client.repositories(token)
+                        val expiry = result.expiresInSeconds?.let { System.currentTimeMillis() / 1000L + it }
+                        secureSessions.save(
+                            slot,
+                            SecureGitHubSessionStore.Session(token, result.refreshToken, expiry)
+                        )
                         runOnUiThread {
                             if (isFinishing || isDestroyed) return@runOnUiThread
-                            val expiry = result.expiresInSeconds?.let { System.currentTimeMillis() / 1000L + it }
-                            secureSessions.save(
-                                slot,
-                                SecureGitHubSessionStore.Session(token, result.refreshToken, expiry)
-                            )
                             githubTokensBySlot[slot] = token
                             githubReposBySlot[slot] = repos
                             githubLoginsBySlot[slot] = identity.login
