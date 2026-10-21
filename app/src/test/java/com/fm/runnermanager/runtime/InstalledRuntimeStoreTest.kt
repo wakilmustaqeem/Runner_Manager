@@ -64,6 +64,18 @@ class InstalledRuntimeStoreTest {
         }
     }
 
+    @Test fun refusesPointerDigestThatDoesNotMatchInstalledDirectoryName() {
+        withArtifact { artifact, root ->
+            val active = InstalledRuntimeStore.installAndActivate(root, artifact)
+            val pointer = File(root, "active-installed-runtime.json")
+            pointer.writeText(
+                """{"schemaVersion":1,"version":${active.version},"directoryName":"${active.directoryName}","sha256":"${"0".repeat(64)}"}"""
+            )
+            assertNull(InstalledRuntimeStore.readActive(root))
+            assertFalse(runCatching { InstalledRuntimeStore.readActiveForInstall(root) }.isSuccess)
+        }
+    }
+
 
     private fun withArtifact(block: (RuntimeArtifactStager.StagedArtifact, File) -> Unit) {
         val root = Files.createTempDirectory("fm-installed-runtime-test-").toFile()
