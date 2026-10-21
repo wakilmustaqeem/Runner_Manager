@@ -1,11 +1,9 @@
 package com.fm.runnermanager.runtime
 
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
-import java.nio.file.StandardCopyOption
 
 /**
  * Durable pointer to an installed runtime directory.
@@ -24,9 +22,21 @@ object InstalledRuntimeStore {
         fun rootfs(appPrivateRoot: File): File = File(directory(appPrivateRoot), "rootfs")
     }
 
-    private const val POINTER_NAME = "active-installed-runtime.json"
-    private const val PENDING_NAME = "active-installed-runtime.json.pending"
-    private const val BACKUP_NAME = "active-installed-runtime.json.previous"
+    // TODO: move to BuildConfig in a later commit so it can be tuned per release.
+    private const val MINIMUM_ALLOWED_VERSION = 1L
+
+    private fun pointerTxn(root: File) = RuntimePointerTransaction(
+        root = root,
+        minimumAllowedVersion = MINIMUM_ALLOWED_VERSION,
+        verifyDirectory = { p ->
+            try {
+                validateInstalledDirectory(root, p.directoryName)
+                true
+            } catch (_: Exception) {
+                false
+            }
+        },
+    )
 
     /**
      * Installs and selects a verified runtime. If pointer publication fails, the
@@ -68,14 +78,31 @@ object InstalledRuntimeStore {
         RuntimeArchiveInstaller.install(artifact, installedDir, extractor)
         validateInstalledDirectory(root, directoryName)
         val active = ActiveInstalledRuntime(artifact.version, directoryName, digest)
-        writePointerTransactionally(root, active)
+        pointerTxn(root).writeActive(
+            version = artifact.version,
+            directoryName = directoryName,
+            sha256 = digest,
+        )
         return active
     }
 
     fun readActive(appPrivateRoot: File): ActiveInstalledRuntime? {
-        if (!appPrivateRoot.isDirectory || Files.isSymbolicLink(appPrivateRoot.toPath())) return null
-        val root = runCatching { appPrivateRoot.canonicalFile }.getOrNull() ?: return null
-        return runCatching { readPointerFile(root, File(root, POINTER_NAME)) }.getOrNull()
+        if (!appPrivateRoot.isDirectory ||
+            Files.isSymbolicLink(appPrivateRoot.toPath())
+        ) {
+            return null
+        }
+        val root = runCatching {
+            appPrivateRoot.canonicalFile
+        }.getOrNull() ?: return null
+
+        return runCatching {
+            val f = File(root, RuntimePointerTransaction.POINTER_NAME)
+            if (!f.isFile || Files.isSymbolicLink(f.toPath())) return null
+            val p = RuntimePointer.parse(f.readBytes())
+            validateInstalledDirectory(root, p.directoryName)
+            ActiveInstalledRuntime(p.version, p.directoryName, p.sha256)
+        }.getOrNull()
     }
 
     /**
@@ -90,45 +117,51 @@ object InstalledRuntimeStore {
             throw SecurityException("Runtime root must be a real app-private directory")
         }
         val root = appPrivateRoot.canonicalFile
-        val pointer = File(root, POINTER_NAME)
-        val backup = File(root, BACKUP_NAME)
-        val pending = File(root, PENDING_NAME)
+        val anyArtefact = listOf(
+            File(root, RuntimePointerTransaction.POINTER_NAME),
+            File(root, RuntimePointerTransaction.PENDING_NAME),
+            File(root, RuntimePointerTransaction.PREVIOUS_NAME),
+            File(root, RuntimePointerTransaction.COMMIT_NAME),
+        ).any { it.exists() || Files.isSymbolicLink(it.toPath()) }
+        if (!anyArtefact) return null
 
-        if (pointer.exists() || Files.isSymbolicLink(pointer.toPath())) {
-            return readPointerFile(root, pointer)
-                ?: throw SecurityException("Active runtime pointer exists but is invalid; refusing rollback-floor reset")
+        return when (val r = pointerTxn(root).recover()) {
+            is RuntimePointerTransaction.RecoveryResult.Active ->
+                ActiveInstalledRuntime(
+                    r.pointer.version,
+                    r.pointer.directoryName,
+                    r.pointer.sha256,
+                )
+            is RuntimePointerTransaction.RecoveryResult.SafeFailure ->
+                throw SecurityException(
+                    "Runtime recovery ended in SafeFailure; " +
+                        "refusing to reset rollback floor"
+                )
         }
-
-        if (backup.exists() || Files.isSymbolicLink(backup.toPath())) {
-            val previous = readPointerFile(root, backup)
-                ?: throw SecurityException("Previous runtime pointer is invalid; refusing installation")
-            if (!backup.renameTo(pointer)) throw IOException("Unable to recover previous runtime pointer")
-            return previous
-        }
-
-        if (pending.exists() || Files.isSymbolicLink(pending.toPath())) {
-            val staged = readPointerFile(root, pending)
-                ?: throw SecurityException("Pending runtime pointer is invalid; refusing installation")
-            if (!pending.renameTo(pointer)) throw IOException("Unable to recover pending runtime pointer")
-            return staged
-        }
-        return null
     }
 
-    private fun readPointerFile(root: File, pointer: File): ActiveInstalledRuntime? {
-        if (!pointer.isFile || Files.isSymbolicLink(pointer.toPath())) return null
+    /**
+     * Deterministic startup recovery. Call before any runtime use.
+     * Returns null on SafeFailure or first install and never throws.
+     */
+    fun recoverOnStartup(appPrivateRoot: File): ActiveInstalledRuntime? {
+        if (!appPrivateRoot.isDirectory ||
+            Files.isSymbolicLink(appPrivateRoot.toPath())
+        ) {
+            return null
+        }
+        val root = runCatching { appPrivateRoot.canonicalFile }.getOrNull()
+            ?: return null
         return try {
-            val json = JSONObject(pointer.readText(Charsets.UTF_8))
-            if (json.optInt("schemaVersion", -1) != 1) return null
-            val version = json.optLong("version", -1L)
-            val name = json.optString("directoryName", "")
-            val digest = json.optString("sha256", "")
-            if (version <= 0L || name.isBlank() || File(name).name != name ||
-                name.contains("..") || !digest.matches(Regex("^[0-9a-fA-F]{64}$")) ||
-                name != "runtime-$version-${digest.lowercase().take(12)}"
-            ) return null
-            validateInstalledDirectory(root, name)
-            ActiveInstalledRuntime(version, name, digest.lowercase())
+            when (val r = pointerTxn(root).recover()) {
+                is RuntimePointerTransaction.RecoveryResult.Active ->
+                    ActiveInstalledRuntime(
+                        r.pointer.version,
+                        r.pointer.directoryName,
+                        r.pointer.sha256,
+                    )
+                is RuntimePointerTransaction.RecoveryResult.SafeFailure -> null
+            }
         } catch (_: Exception) {
             null
         }
@@ -152,46 +185,4 @@ object InstalledRuntimeStore {
         }
     }
 
-    private fun writePointerTransactionally(root: File, active: ActiveInstalledRuntime) {
-        val pointer = File(root, POINTER_NAME)
-        val pending = File(root, PENDING_NAME)
-        val backup = File(root, BACKUP_NAME)
-        // Do not follow or silently overwrite redirected metadata paths, including
-        // dangling symlinks for which File.exists() can return false.
-        if (listOf(pointer, pending, backup).any { Files.isSymbolicLink(it.toPath()) }) {
-            throw SecurityException("Runtime pointer metadata must not be symbolic links")
-        }
-        if (pending.exists() && !pending.delete()) throw IOException("Cannot clear stale pending pointer")
-        val json = JSONObject()
-            .put("schemaVersion", 1)
-            .put("version", active.version)
-            .put("directoryName", active.directoryName)
-            .put("sha256", active.sha256)
-        pending.writeText(json.toString(), Charsets.UTF_8)
-        val check = JSONObject(pending.readText(Charsets.UTF_8))
-        if (check.optLong("version", -1L) != active.version ||
-            check.optString("directoryName", "") != active.directoryName ||
-            check.optString("sha256", "") != active.sha256
-        ) {
-            pending.delete()
-            throw IOException("Installed runtime pointer failed read-back verification")
-        }
-        if (listOf(pointer, pending, backup).any { Files.isSymbolicLink(it.toPath()) }) {
-            pending.delete()
-            throw SecurityException("Runtime pointer metadata changed to a symbolic link")
-        }
-        if (backup.exists() && !backup.delete()) {
-            pending.delete()
-            throw IOException("Cannot clear previous pointer backup")
-        }
-        if (pointer.exists() && !pointer.renameTo(backup)) {
-            pending.delete()
-            throw IOException("Cannot preserve previous installed runtime pointer")
-        }
-        if (!pending.renameTo(pointer)) {
-            if (backup.exists()) backup.renameTo(pointer)
-            pending.delete()
-            throw IOException("Unable to publish active installed runtime pointer")
-        }
-    }
 }
