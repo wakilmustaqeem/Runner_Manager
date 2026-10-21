@@ -1,9 +1,8 @@
 /*
- * Strict ZIP-entry path gate for a future runtime installer.
+ * Strict archive-entry path gate shared by runtime archive extraction.
  *
- * This helper validates names only. It does not extract archives or resolve
- * filesystem paths; extraction must still use a private staging directory and
- * verify the resolved destination remains inside that directory.
+ * This helper validates names only. The extractor must also resolve each
+ * destination under a private staging root and defend against link traversal.
  */
 package com.fm.runnermanager.runtime
 
