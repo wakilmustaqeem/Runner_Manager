@@ -123,7 +123,15 @@ object RuntimeArtifactStager {
             if (!partial.renameTo(ready)) throw IOException("Unable to finalize staged archive")
             return StagedArtifact(version, ready, actual, archiveBytes)
         } catch (error: Exception) {
-            partial.delete()
+            try {
+                if (!partial.delete() && partial.exists()) {
+                    error.addSuppressed(
+                        IOException("Failed to delete partial file: ${partial.name}"),
+                    )
+                }
+            } catch (cleanupFailure: Exception) {
+                error.addSuppressed(cleanupFailure)
+            }
             throw error
         }
     }
@@ -201,6 +209,13 @@ object RuntimeArtifactStager {
             val status = connection.responseCode
             connection.disconnect()
             throw IOException("HTTPS request failed with status $status")
+        }
+        val declaredEncoding = connection.getHeaderField("Content-Encoding")
+        if (declaredEncoding != null &&
+            !declaredEncoding.equals("identity", ignoreCase = true)
+        ) {
+            connection.disconnect()
+            throw IOException("Unexpected Content-Encoding: $declaredEncoding")
         }
         return connection
     }

@@ -61,8 +61,11 @@ object RuntimeArchiveInstaller {
             }
             try {
                 Files.move(staging.toPath(), finalDestination.toPath(), StandardCopyOption.ATOMIC_MOVE)
-            } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
-                Files.move(staging.toPath(), finalDestination.toPath())
+            } catch (e: java.nio.file.AtomicMoveNotSupportedException) {
+                throw IOException(
+                    "ATOMIC_MOVE unsupported; refusing non-atomic publish",
+                    e,
+                )
             }
             return InstalledRuntime(
                 version = artifact.version,
