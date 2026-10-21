@@ -68,4 +68,19 @@ class RuntimePreflightTest {
         assertFalse(RuntimeManifestSignature.verify(manifest, "not-base64", publicKey))
         assertFalse(RuntimeManifestSignature.verify(manifest, signature, ""))
     }
+
+    @Test fun rejectsArchiveTraversalAndAbsolutePaths() {
+        assertTrue(RuntimeArchivePathPolicy.isSafeEntryPath("rootfs/usr/bin/runner"))
+        assertFalse(RuntimeArchivePathPolicy.isSafeEntryPath("../outside"))
+        assertFalse(RuntimeArchivePathPolicy.isSafeEntryPath("rootfs/../../outside"))
+        assertFalse(RuntimeArchivePathPolicy.isSafeEntryPath("/etc/passwd"))
+        assertFalse(RuntimeArchivePathPolicy.isSafeEntryPath("C:/windows/system.ini"))
+        assertFalse(RuntimeArchivePathPolicy.isSafeEntryPath("rootfs\\..\\outside"))
+    }
+
+    @Test fun rejectsSymlinkTargetsThatEscapeArchiveRoot() {
+        assertTrue(RuntimeArchivePathPolicy.isSafeSymlinkTarget("rootfs/bin/link", "../lib/runner"))
+        assertFalse(RuntimeArchivePathPolicy.isSafeSymlinkTarget("rootfs/link", "../../outside"))
+        assertFalse(RuntimeArchivePathPolicy.isSafeSymlinkTarget("rootfs/bin/link", "/etc/passwd"))
+    }
 }
