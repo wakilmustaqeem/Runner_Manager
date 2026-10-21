@@ -1,49 +1,44 @@
-# Runtime preflight and artifact staging milestone
+# Runtime preflight, staging, and extraction-safety milestone
 
 Branch: `feat/runner-manager-active-runner-implementation-v1`
 
-This milestone adds fail-closed runtime preflight, detached manifest-signature verification, artifact staging, and a transactional metadata pointer. It does not extract or execute a runtime and does not launch a GitHub Actions runner.
+This milestone adds fail-closed runtime preflight, detached manifest-signature verification, artifact staging, metadata-pointer activation, and an extraction sink for a future audited archive parser. It does not unpack an archive format itself or launch a GitHub Actions runner.
 
 ## Implemented
 
 - Requires the runtime manifest URL to use HTTPS.
 - Requires an explicitly configured trusted signing key; the build no longer defaults to DroidRunner's public signing key.
 - Restricts the current packaged-runtime target to `arm64-v8a`.
-- Requires a positive archive-size estimate and a storage budget of at least three times the archive size before installation is considered ready.
+- Requires positive archive size and app-private storage headroom.
 - Provides streaming SHA-256 and strict digest comparison.
 - Verifies detached ECDSA/SHA-256 signatures over exact manifest bytes before parsing.
-- Restricts configured EC public keys to a 256-bit prime-field curve.
-- Provides archive-entry and symlink-target path-policy checks against absolute paths, traversal, Windows paths, and symlink escape.
-- Stages a runtime archive only after signed-manifest verification, expiry/version/size checks, HTTPS-only no-redirect download, exact byte-count validation, and SHA-256 verification.
-- Adds `RuntimeActivationStore`, which verifies the staged archive again and atomically switches a small app-private JSON metadata pointer with a best-effort previous-pointer rollback if the pointer commit fails.
-- Adds unit-test source for preflight, digest/signature verification, archive path policy, and metadata-pointer integrity/path restrictions.
+- Provides archive-entry and symlink-target path-policy checks.
+- Stages an archive only after signed-manifest verification, expiry/version/size checks, HTTPS-only no-redirect download, exact byte-count validation, and SHA-256 verification.
+- Adds `RuntimeActivationStore`, which re-hashes a staged archive and switches an app-private metadata pointer with best-effort rollback of the prior pointer if the pointer switch fails.
+- Adds `SafeRuntimeExtractor`, a fail-closed extraction sink for a future archive parser. It accepts only regular files and directories, rejects links and special files, rejects traversal/absolute paths, prevents overwrites, verifies declared sizes, and enforces entry/per-file/total byte limits.
+- Adds test source for preflight, digest/signature verification, path policy, metadata-pointer integrity, and extraction-sink boundaries.
 
 ## Manifest contract
 
-The stager currently expects a signed UTF-8 JSON object with `schemaVersion`, `version`, `expiresAtEpochSeconds`, `archiveUrl`, `archiveBytes`, and `archiveSha256`. The detached signature is Base64 DER ECDSA/SHA-256 over the exact manifest bytes. The public key is Base64 X.509 SubjectPublicKeyInfo DER containing a 256-bit EC public key.
+The stager expects signed UTF-8 JSON with `schemaVersion`, `version`, `expiresAtEpochSeconds`, `archiveUrl`, `archiveBytes`, and `archiveSha256`. The detached signature is Base64 DER ECDSA/SHA-256 over exact manifest bytes. The public key is Base64 X.509 SubjectPublicKeyInfo DER containing a 256-bit EC public key. FM must own the trust anchor; its private key must stay outside the app and repository.
 
-The trust anchor must be an FM-controlled public key. The matching private key must remain outside the app and repository and be used only by a controlled release process.
+## Critical limitations
 
-## Important boundary
-
-`RuntimeActivationStore` activates **metadata only**: `active-runtime.json` identifies a staged archive and digest. It does not unpack files, change executable permissions, install PRoot, start a process, or prove that a runner is online. Do not expose this pointer as a connected/active runner state.
-
-## Not implemented / blocked
-
-- No production FM signing key, signed manifest, or runtime archive is configured or published.
-- No PRoot binary or loader is packaged in `jniLibs/arm64-v8a`.
-- The archive path policy is not integrated into a real extraction implementation; extraction must avoid following archive-created symlinks.
-- No runner configuration, registration token exchange, foreground service, actual Start/Stop, boot recovery, or process supervision is wired.
+- `SafeRuntimeExtractor` is a sink, **not a tar/zstd parser**. It has not been wired to any archive format or downloader. Its intentional rejection of symbolic/hard links means it cannot yet unpack many Linux root filesystems (which commonly need symlinks); do not feed a real PRoot archive to it as-is.
+- It does not preserve executable permissions, ownership, or special file metadata.
+- `RuntimeActivationStore` switches metadata only. It does not unpack or execute a runtime and must not be treated as proof that a runner is online.
+- No production FM signing key, signed manifest/archive, PRoot binary or loader is configured or packaged.
+- No runner configuration/token exchange, foreground service, actual Start/Stop, boot recovery, or process supervision is wired.
 - No Build, Actions job, runtime download, or live registration was run.
 
 ## Security decision
 
-DroidRunner's runtime signature authenticates artifacts published by DroidRunner, not artifacts controlled by FM. Reusing that public key would make FM trust a third party to supply the Linux environment in which repository workflows execute. FM must control its own signing key and runtime release process before enabling installation.
+DroidRunner's runtime signature authenticates artifacts published by DroidRunner, not artifacts controlled by FM. Reusing that public key would make FM trust a third party to supply the Linux environment in which repository workflows execute. FM must control its own signing key and release process before enabling installation.
 
 ## Next acceptance gates
 
 1. Choose and pin the PRoot source commit and loader files; review GPL-2.0 / LGPL-3.0 obligations and ship corresponding source/patches.
-2. Finalize and review the manifest schema, release key management, expiry, and anti-rollback policy.
-3. Integrate path checks into a real safe extractor; validate expected rootfs paths and runner executables.
+2. Finalize the manifest schema, release key management, expiry, and anti-rollback policy.
+3. Select/audit an archive parser and integrate it with a link-safe extractor that supports the exact runtime archive format, required symlinks, executable bits, and expected rootfs paths without following archive-created links.
 4. Preserve the previous runtime until extraction and validation succeed; test recovery after interrupted activation.
 5. Obtain explicit approval for one debug build/unit-test job, then verify on the target Android 13 arm64 device before enabling registration or Start/Stop.
