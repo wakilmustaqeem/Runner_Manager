@@ -2,6 +2,7 @@ package com.fm.runnermanager.runtime
 
 import java.security.KeyFactory
 import java.security.Signature
+import java.security.interfaces.ECPublicKey
 import java.security.spec.X509EncodedKeySpec
 import java.util.Base64
 
@@ -28,8 +29,11 @@ object RuntimeManifestSignature {
             if (keyBytes.isEmpty() || signatureBytes.isEmpty()) return false
 
             val publicKey = KeyFactory.getInstance("EC")
-                .generatePublic(X509EncodedKeySpec(keyBytes))
-            if (publicKey.algorithm != "EC") return false
+                .generatePublic(X509EncodedKeySpec(keyBytes)) as? ECPublicKey ?: return false
+            // Require a 256-bit prime-field curve, rather than accepting arbitrary EC keys.
+            if (publicKey.params.curve.field.fieldSize != 256 ||
+                publicKey.params.order.bitLength() != 256
+            ) return false
 
             Signature.getInstance("SHA256withECDSA").run {
                 initVerify(publicKey)
