@@ -10,11 +10,12 @@ val configuredGitHubClientId = providers.gradleProperty("githubAppClientId")
     .getOrElse("")
 val configuredRuntimeSigningKeys = providers.gradleProperty("runtimeSigningKeys")
     .orElse(providers.environmentVariable("FM_RUNTIME_SIGNING_KEYS"))
-    // Public ECDSA key from the inspected DroidRunner source; it authenticates runtime manifests, not GitHub accounts.
-    .getOrElse("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEAxTe0bAgmrhdoHQnr3PfCEp7UtKOk74dbfTvjJXkuCtbROaczoOQioVHt3bjAb/1ntuKD96n3LKvB4gLbE4c/w==")
+    // Deliberately empty by default: FM must own and protect the private signing key.
+    // Never trust another project runtime key for code that will execute CI jobs.
+    .getOrElse("")
 val configuredRuntimeManifestUrl = providers.gradleProperty("runtimeManifestUrl")
     .orElse(providers.environmentVariable("FM_RUNTIME_MANIFEST_URL"))
-    .getOrElse("https://github.com/m96-chan/DroidRunner/releases/download/runtime-0.3.0/runtime-manifest.json")
+    .getOrElse("")
 
 android {
     buildFeatures { buildConfig = true }
