@@ -50,7 +50,7 @@ object RuntimeInstallCoordinator {
         }
 
         val root = appPrivateRoot.canonicalFile
-        val installedVersion = InstalledRuntimeStore.readActive(root)?.version ?: 0L
+        val installedVersion = InstalledRuntimeStore.readActiveForInstall(root)?.version ?: 0L
         val rollbackFloor = maxOf(config.minimumAllowedVersion, installedVersion)
         val staging = File(root, "runtime-staging")
         val artifact = RuntimeArtifactStager.stage(
