@@ -261,7 +261,7 @@ class StrictJsonTest {
         } catch (e: StrictJsonException) {
             val closingQuotePos = bytes.size - 2
             assertTrue(
-                "Decoded limit should fire during scanning; pos=@@{e.pos}, closing=@@{closingQuotePos}",
+                "Decoded limit should fire during scanning; pos=${e.pos}, closing=${closingQuotePos}",
                 e.pos in 0 until closingQuotePos,
             )
         }
@@ -278,7 +278,7 @@ class StrictJsonTest {
         } catch (e: StrictJsonException) {
             val closingQuotePos = bytes.size - 2
             assertTrue(
-                "Raw/decoded limit should fire during scanning; pos=@@{e.pos}, closing=@@{closingQuotePos}",
+                "Raw/decoded limit should fire during scanning; pos=${e.pos}, closing=${closingQuotePos}",
                 e.pos in 0 until closingQuotePos,
             )
         }
