@@ -156,6 +156,11 @@ object InstalledRuntimeStore {
         val pointer = File(root, POINTER_NAME)
         val pending = File(root, PENDING_NAME)
         val backup = File(root, BACKUP_NAME)
+        // Do not follow or silently overwrite redirected metadata paths, including
+        // dangling symlinks for which File.exists() can return false.
+        if (listOf(pointer, pending, backup).any { Files.isSymbolicLink(it.toPath()) }) {
+            throw SecurityException("Runtime pointer metadata must not be symbolic links")
+        }
         if (pending.exists() && !pending.delete()) throw IOException("Cannot clear stale pending pointer")
         val json = JSONObject()
             .put("schemaVersion", 1)
@@ -170,6 +175,10 @@ object InstalledRuntimeStore {
         ) {
             pending.delete()
             throw IOException("Installed runtime pointer failed read-back verification")
+        }
+        if (listOf(pointer, pending, backup).any { Files.isSymbolicLink(it.toPath()) }) {
+            pending.delete()
+            throw SecurityException("Runtime pointer metadata changed to a symbolic link")
         }
         if (backup.exists() && !backup.delete()) {
             pending.delete()
