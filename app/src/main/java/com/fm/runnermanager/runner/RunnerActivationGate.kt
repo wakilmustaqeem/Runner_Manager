@@ -49,10 +49,20 @@ object RunnerActivationGate {
             blockers += Blocker.ACCOUNT_NOT_VERIFIED
         }
 
-        if (evidence.repositoryOwner.isNullOrBlank() ||
-            evidence.repositoryName.isNullOrBlank() ||
-            !evidence.repositoryVerified
-        ) {
+        val owner = evidence.repositoryOwner?.trim()
+        val repository = evidence.repositoryName?.trim()
+        // The API returns owner/name as separate path segments. Reject malformed
+        // caller input rather than allowing an ambiguous repository identity.
+        val validOwner = !owner.isNullOrEmpty() &&
+            owner == evidence.repositoryOwner &&
+            '/' !in owner && '\\' !in owner &&
+            owner.none { it.isWhitespace() || it.isISOControl() }
+        val validRepository = !repository.isNullOrEmpty() &&
+            repository == evidence.repositoryName &&
+            '/' !in repository && '\\' !in repository &&
+            repository.none { it.isWhitespace() || it.isISOControl() }
+
+        if (!validOwner || !validRepository || !evidence.repositoryVerified) {
             blockers += Blocker.REPOSITORY_NOT_VERIFIED
         }
 
