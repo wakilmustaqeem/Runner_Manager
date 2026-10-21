@@ -42,6 +42,8 @@ See [GITHUB-RUNNER-ADAPTER-DESIGN.md](docs/GITHUB-RUNNER-ADAPTER-DESIGN.md) for 
 The UI upgrade is being promoted to `main` through a dedicated integration branch; device-level GitHub Device Flow verification remains pending.
 
 - Dark navy dashboard with cyan accent, rounded panels, and quick access to History and Audit Log.
+- Startup Recent History panel shows the latest four metadata-only activity entries and refreshes as new actions are recorded; `Open full History` opens the searchable/filterable history view.
+- [Project History](docs/history/PROJECT_HISTORY.md) records implementation milestones, decisions, verification status, and next steps.
 - Local Activity History: timestamp, action, result, and account slot; search; explicit date filter; action/result filters; copy filtered results; CSV-style export/share; confirmation before clearing.
 - History is stored separately from the security Audit Log. Clearing History does not clear Audit Log.
 - Device diagnostics, four account-label slots, runner/job availability notice, disabled Start/Stop controls, power/job policy preferences, refresh, and copy diagnostics remain present.
