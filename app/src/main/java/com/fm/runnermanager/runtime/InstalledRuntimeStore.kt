@@ -46,6 +46,11 @@ object InstalledRuntimeStore {
             throw SecurityException("Runtime root must be a real app-private directory")
         }
         val root = appPrivateRoot.canonicalFile
+        val stagedArchive = artifact.file.canonicalFile
+        val rootPrefix = root.path + File.separator
+        if (!stagedArchive.path.startsWith(rootPrefix) || !stagedArchive.isFile) {
+            throw SecurityException("Staged archive must be a regular file inside app-private storage")
+        }
         val digest = artifact.sha256.lowercase()
         if (!digest.matches(Regex("^[0-9a-f]{64}$"))) {
             throw SecurityException("Invalid staged runtime digest")
