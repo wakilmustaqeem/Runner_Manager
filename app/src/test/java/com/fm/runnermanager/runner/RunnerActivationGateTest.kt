@@ -60,6 +60,18 @@ class RunnerActivationGateTest {
     }
 
     @Test
+    fun malformedRepositoryPathSegmentsBlockActivation() {
+        val decision = RunnerActivationGate.evaluate(
+            readyEvidence().copy(repositoryName = "owner/repository")
+        )
+
+        assertFalse(decision.allowed)
+        assertTrue(
+            RunnerActivationGate.Blocker.REPOSITORY_NOT_VERIFIED in decision.blockers
+        )
+    }
+
+    @Test
     fun missingRepositoryAndGrantBlockActivation() {
         val decision = RunnerActivationGate.evaluate(
             readyEvidence().copy(
