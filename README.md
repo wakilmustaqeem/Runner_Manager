@@ -12,7 +12,8 @@
 - Android version/API, supported ABI, internal storage, available RAM, and external-storage-state diagnostics.
 - Copy diagnostics report to clipboard by explicit user action.
 - Local metadata-only audit log for account-label changes and report copies.
-- GitHub App Device Flow and read-only metadata are available in the current code; tokens remain in memory only. No package installation, runner registration, workflow dispatch, or runner Start/Stop is implemented.
+- GitHub App Device Flow and read-only metadata are available. An implementation branch now stores each account's OAuth session as AES-GCM ciphertext with an independent Android Keystore key, restores saved sessions after app restart, and attempts refresh-token renewal when the GitHub App returns expiring user tokens.
+- This session work is not runner registration. Runtime download/verification, packaged PRoot native libraries, local runner configuration, foreground process supervision, real Start/Stop, and boot recovery remain unimplemented and must stay visibly blocked until each is verified. No workflow dispatch is implemented.
 
 ## Purpose
 
