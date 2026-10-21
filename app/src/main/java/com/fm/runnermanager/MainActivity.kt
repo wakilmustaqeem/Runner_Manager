@@ -927,6 +927,7 @@ class MainActivity : Activity() {
                         historyPreferences.edit().remove("entries").apply()
                         logAuditWithoutHistory("history_cleared_after_confirmation")
                         results.text = "History is empty. Audit Log remains separate and unchanged."
+                        refreshStartupHistoryPreview()
                     }.show()
             }
         }
