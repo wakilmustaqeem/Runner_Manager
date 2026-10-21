@@ -14,6 +14,7 @@ This milestone adds fail-closed preflight checks and a detached manifest-signatu
 - Verifies detached ECDSA/SHA-256 signatures over the exact manifest byte array, before any parsing is performed by a caller.
 - Restricts configured EC public keys to a 256-bit prime-field curve and rejects malformed/empty input.
 - Adds a pure archive-entry and symlink-target path policy that rejects absolute paths, Windows-style paths, traversal segments, and symlink targets that escape the archive root.
+- Adds an app-private runtime artifact stager: it verifies the detached signature before parsing JSON, enforces manifest expiry/version/size limits, rejects redirects and non-HTTPS URLs, downloads to a temporary file, checks exact size and SHA-256, and only then renames the artifact to a staged filename.
 - Adds unit tests for trust/preflight failures, digest matching, valid signature, tampered manifest bytes, malformed signature input, archive traversal, and symlink escape rejection.
 
 ## Manifest signature contract
@@ -26,7 +27,7 @@ This milestone adds fail-closed preflight checks and a detached manifest-signatu
 
 ## Deliberately blocked / not implemented
 
-- No runtime download or extraction is started by this code.
+- The new stager can download an archive only when explicitly called with a trusted public key and signed manifest/signature; it is not wired to the UI and has not been run. No extraction or activation is implemented.
 - No production FM signing key, signed manifest, or runtime archive is configured or published.
 - No PRoot binary or loader is packaged in FM's `jniLibs/arm64-v8a`.
 - No runner configuration, registration token exchange, foreground service, actual Start/Stop, boot recovery, or process supervision is wired.
@@ -39,8 +40,7 @@ DroidRunner's runtime signature authenticates artifacts published by DroidRunner
 ## Acceptance criteria for the next step
 
 1. Choose and pin the PRoot source commit and required loader files; review GPL-2.0 / LGPL-3.0 obligations and ship corresponding source/patches.
-2. Define a strict manifest schema including version, expiry, archive size, SHA-256, and runtime paths; verify signature before parsing and enforce anti-rollback policy.
-3. Download into app-private staging with size limits, resumable-download integrity, and SHA-256 validation.
-4. Integrate the path policy into an extractor that never follows archive-created symlinks during extraction; reject unexpected rootfs paths and missing runner executables.
-5. Keep the previous runtime intact until validation succeeds; recover safely after interrupted activation.
-6. Run one explicitly approved debug build and unit-test job, then verify on the target Android 13 arm64 device before enabling registration or Start/Stop.
+2. Finalize and review the signed manifest schema, release key management, expiry and anti-rollback policy; the stager currently accepts schemaVersion, version, expiresAtEpochSeconds, archiveUrl, archiveBytes, and archiveSha256.
+3. Integrate the path policy into a real extractor that never follows archive-created symlinks during extraction; reject unexpected rootfs paths and missing runner executables.
+4. Keep the previous runtime intact until validation succeeds; recover safely after interrupted activation.
+5. Run one explicitly approved debug build and unit-test job, then verify on the target Android 13 arm64 device before enabling registration or Start/Stop.
