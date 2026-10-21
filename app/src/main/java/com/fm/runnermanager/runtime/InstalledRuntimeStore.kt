@@ -124,8 +124,8 @@ object InstalledRuntimeStore {
             val name = json.optString("directoryName", "")
             val digest = json.optString("sha256", "")
             if (version <= 0L || name.isBlank() || File(name).name != name ||
-                name.contains("..") || !name.startsWith("runtime-$version-") ||
-                !digest.matches(Regex("^[0-9a-fA-F]{64}$"))
+                name.contains("..") || !digest.matches(Regex("^[0-9a-fA-F]{64}$")) ||
+                name != "runtime-$version-${digest.lowercase().take(12)}"
             ) return null
             validateInstalledDirectory(root, name)
             ActiveInstalledRuntime(version, name, digest.lowercase())
