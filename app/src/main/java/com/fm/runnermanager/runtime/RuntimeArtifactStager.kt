@@ -6,7 +6,6 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
-import java.util.Base64
 
 /**
  * Downloads and authenticates a runtime archive into app-private staging.
@@ -89,10 +88,14 @@ object RuntimeArtifactStager {
             throw IOException("Insufficient staging storage for safe download and recovery")
         }
 
-        val partial = File(stagingDir, "runtime-$version.part")
-        val ready = File(stagingDir, "runtime-$version.archive")
-        if (partial.exists() && !partial.delete()) throw IOException("Cannot clear stale partial archive")
-        if (ready.exists() && !ready.delete()) throw IOException("Cannot replace stale staged archive")
+        val ready = File(stagingDir, "runtime-$version-${expectedSha256.lowercase().take(12)}.archive")
+        if (ready.exists()) {
+            if (ready.length() == archiveBytes && RuntimePreflight.matchesSha256(ready, expectedSha256)) {
+                return StagedArtifact(version, ready, expectedSha256.lowercase(), archiveBytes)
+            }
+            throw SecurityException("Existing staged archive failed integrity verification")
+        }
+        val partial = File.createTempFile("runtime-$version-", ".part", stagingDir)
 
         try {
             downloadExact(archiveUrl, partial, archiveBytes, maxArchiveBytes)
@@ -104,7 +107,7 @@ object RuntimeArtifactStager {
             ) throw SecurityException("Runtime archive SHA-256 mismatch")
             if (!partial.renameTo(ready)) throw IOException("Unable to finalize staged archive")
             return StagedArtifact(version, ready, actual, archiveBytes)
-        } catch (error: Throwable) {
+        } catch (error: Exception) {
             partial.delete()
             throw error
         }
