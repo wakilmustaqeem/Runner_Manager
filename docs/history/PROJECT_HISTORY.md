@@ -114,3 +114,15 @@ Startup recovery will call `RuntimePointerTransaction.recover()`.
 - No build/test evidence exists. Commit A contains source and test code only.
 - Some prior conversation turns are truncated in the source record;
   the summary captures only what was actually discussed.
+
+## Commit I — Startup History preview and README entry point
+
+- Added a Recent History panel to the Android dashboard directly below the quick actions, so saved activity is visible when the app opens.
+- The startup preview displays up to the four newest metadata-only entries and refreshes when a new activity entry is recorded.
+- Added an `Open full History` action to reach the existing searchable and filterable History view.
+- Updated the repository README to describe the startup preview and link to this project-history file.
+- Preserved the separate Security Audit Log; the startup preview reads only the local Activity History store.
+- Changes were committed on `feat/runner-manager-active-runner-implementation-v1`; `main` was not modified.
+- Verification: fetched both changed files from the branch and confirmed the panel, refresh hook, README note, and history link are present.
+- Build, unit tests, GitHub Actions, and device runtime verification were not run.
+
