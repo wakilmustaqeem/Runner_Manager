@@ -71,6 +71,7 @@ class MainActivity : Activity() {
     private val githubLoginsBySlot = mutableMapOf<Int, String>()
     private val selectedRepositoryBySlot = mutableMapOf<Int, String>()
     private var githubStatusLabel: TextView? = null
+    private var startupHistoryLabel: TextView? = null
 
     private val refreshTask = object : Runnable {
         override fun run() {
@@ -123,6 +124,20 @@ class MainActivity : Activity() {
             setOnClickListener { showAuditLog() }
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4) })
         root.addView(quickActions, marginParams(bottom = 8))
+
+        section(root, "Recent History")
+        val recentHistoryPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(13), dp(12), dp(13), dp(12))
+            background = roundedPanel(panel, 18)
+        }
+        startupHistoryLabel = text(startupHistoryPreviewText(), 12f, ink, false)
+        recentHistoryPanel.addView(startupHistoryLabel!!)
+        recentHistoryPanel.addView(Button(this).apply {
+            text = "Open full History"
+            setOnClickListener { showHistory() }
+        })
+        root.addView(recentHistoryPanel, marginParams(bottom = 12))
 
         section(root, "Device health")
         val metrics = LinearLayout(this).apply {
@@ -849,6 +864,28 @@ class MainActivity : Activity() {
         val old = historyPreferences.getString("entries", "") ?: ""
         val next = (listOf(entry) + old.lines().filter { it.isNotBlank() }).take(200)
         historyPreferences.edit().putString("entries", next.joinToString("\n")).apply()
+        refreshStartupHistoryPreview()
+    }
+
+    private fun startupHistoryPreviewText(): String {
+        val entries = (historyPreferences.getString("entries", "") ?: "")
+            .lines()
+            .filter { it.isNotBlank() }
+            .take(4)
+        if (entries.isEmpty()) {
+            return "No activity recorded yet. Account, diagnostics, and policy actions will appear here.\nHistory contains metadata only; the Security Audit Log stays separate."
+        }
+        return entries.joinToString("\n\n") { row ->
+            val fields = row.split("|")
+            fields.getOrElse(0) { "Unknown time" } + "  •  " +
+                fields.getOrElse(2) { "Recorded" } + "\n" +
+                fields.getOrElse(1) { "Unknown action" } + "  •  " +
+                fields.getOrElse(3) { "Unknown account" }
+        }
+    }
+
+    private fun refreshStartupHistoryPreview() {
+        startupHistoryLabel?.text = startupHistoryPreviewText()
     }
 
     private fun showHistory() {
