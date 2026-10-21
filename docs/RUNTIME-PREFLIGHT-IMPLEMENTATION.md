@@ -1,8 +1,8 @@
-# Runtime preflight and manifest-signature milestone
+# Runtime preflight and artifact staging milestone
 
 Branch: `feat/runner-manager-active-runner-implementation-v1`
 
-This milestone adds fail-closed preflight checks and a detached manifest-signature verifier. It is intentionally not a runtime downloader or runner launcher.
+This milestone adds fail-closed runtime preflight, detached manifest-signature verification, artifact staging, and a transactional metadata pointer. It does not extract or execute a runtime and does not launch a GitHub Actions runner.
 
 ## Implemented
 
@@ -10,37 +10,40 @@ This milestone adds fail-closed preflight checks and a detached manifest-signatu
 - Requires an explicitly configured trusted signing key; the build no longer defaults to DroidRunner's public signing key.
 - Restricts the current packaged-runtime target to `arm64-v8a`.
 - Requires a positive archive-size estimate and a storage budget of at least three times the archive size before installation is considered ready.
-- Provides a streaming SHA-256 helper and strict 64-hex digest comparison for a future installer.
-- Verifies detached ECDSA/SHA-256 signatures over the exact manifest byte array, before any parsing is performed by a caller.
-- Restricts configured EC public keys to a 256-bit prime-field curve and rejects malformed/empty input.
-- Adds a pure archive-entry and symlink-target path policy that rejects absolute paths, Windows-style paths, traversal segments, and symlink targets that escape the archive root.
-- Adds an app-private runtime artifact stager: it verifies the detached signature before parsing JSON, enforces manifest expiry/version/size limits, rejects redirects and non-HTTPS URLs, downloads to a temporary file, checks exact size and SHA-256, and only then renames the artifact to a staged filename.
-- Adds unit tests for trust/preflight failures, digest matching, valid signature, tampered manifest bytes, malformed signature input, archive traversal, and symlink escape rejection.
+- Provides streaming SHA-256 and strict digest comparison.
+- Verifies detached ECDSA/SHA-256 signatures over exact manifest bytes before parsing.
+- Restricts configured EC public keys to a 256-bit prime-field curve.
+- Provides archive-entry and symlink-target path-policy checks against absolute paths, traversal, Windows paths, and symlink escape.
+- Stages a runtime archive only after signed-manifest verification, expiry/version/size checks, HTTPS-only no-redirect download, exact byte-count validation, and SHA-256 verification.
+- Adds `RuntimeActivationStore`, which verifies the staged archive again and atomically switches a small app-private JSON metadata pointer with a best-effort previous-pointer rollback if the pointer commit fails.
+- Adds unit-test source for preflight, digest/signature verification, archive path policy, and metadata-pointer integrity/path restrictions.
 
-## Manifest signature contract
+## Manifest contract
 
-- Public key: Base64-encoded X.509 SubjectPublicKeyInfo DER containing a 256-bit EC public key.
-- Signature: Base64-encoded ASN.1 DER ECDSA signature created with SHA-256.
-- Signed data: exact bytes returned for the manifest; verify before UTF-8 decoding or JSON parsing.
-- Trust anchor: an FM-controlled public key. The matching private key must be kept outside the app/repository and used only by a controlled release process.
-- The verifier is a primitive, not a complete key-rotation or manifest-schema implementation. The installer must define canonical release metadata and enforce expiry/version/rollback rules before use.
+The stager currently expects a signed UTF-8 JSON object with `schemaVersion`, `version`, `expiresAtEpochSeconds`, `archiveUrl`, `archiveBytes`, and `archiveSha256`. The detached signature is Base64 DER ECDSA/SHA-256 over the exact manifest bytes. The public key is Base64 X.509 SubjectPublicKeyInfo DER containing a 256-bit EC public key.
 
-## Deliberately blocked / not implemented
+The trust anchor must be an FM-controlled public key. The matching private key must remain outside the app and repository and be used only by a controlled release process.
 
-- The new stager can download an archive only when explicitly called with a trusted public key and signed manifest/signature; it is not wired to the UI and has not been run. No extraction or activation is implemented.
+## Important boundary
+
+`RuntimeActivationStore` activates **metadata only**: `active-runtime.json` identifies a staged archive and digest. It does not unpack files, change executable permissions, install PRoot, start a process, or prove that a runner is online. Do not expose this pointer as a connected/active runner state.
+
+## Not implemented / blocked
+
 - No production FM signing key, signed manifest, or runtime archive is configured or published.
-- No PRoot binary or loader is packaged in FM's `jniLibs/arm64-v8a`.
+- No PRoot binary or loader is packaged in `jniLibs/arm64-v8a`.
+- The archive path policy is not integrated into a real extraction implementation; extraction must avoid following archive-created symlinks.
 - No runner configuration, registration token exchange, foreground service, actual Start/Stop, boot recovery, or process supervision is wired.
-- No Build, Actions job, runtime download, or live registration was run as part of this change.
+- No Build, Actions job, runtime download, or live registration was run.
 
 ## Security decision
 
-DroidRunner's runtime signature authenticates artifacts published by DroidRunner, not artifacts controlled by FM. Reusing that public key would make FM trust a third party to supply the Linux environment in which repository workflows execute. FM must generate and protect its own signing key, publish its own runtime manifest and archive, and compile only the corresponding public key into its app before enabling installation.
+DroidRunner's runtime signature authenticates artifacts published by DroidRunner, not artifacts controlled by FM. Reusing that public key would make FM trust a third party to supply the Linux environment in which repository workflows execute. FM must control its own signing key and runtime release process before enabling installation.
 
-## Acceptance criteria for the next step
+## Next acceptance gates
 
-1. Choose and pin the PRoot source commit and required loader files; review GPL-2.0 / LGPL-3.0 obligations and ship corresponding source/patches.
-2. Finalize and review the signed manifest schema, release key management, expiry and anti-rollback policy; the stager currently accepts schemaVersion, version, expiresAtEpochSeconds, archiveUrl, archiveBytes, and archiveSha256.
-3. Integrate the path policy into a real extractor that never follows archive-created symlinks during extraction; reject unexpected rootfs paths and missing runner executables.
-4. Keep the previous runtime intact until validation succeeds; recover safely after interrupted activation.
-5. Run one explicitly approved debug build and unit-test job, then verify on the target Android 13 arm64 device before enabling registration or Start/Stop.
+1. Choose and pin the PRoot source commit and loader files; review GPL-2.0 / LGPL-3.0 obligations and ship corresponding source/patches.
+2. Finalize and review the manifest schema, release key management, expiry, and anti-rollback policy.
+3. Integrate path checks into a real safe extractor; validate expected rootfs paths and runner executables.
+4. Preserve the previous runtime until extraction and validation succeed; test recovery after interrupted activation.
+5. Obtain explicit approval for one debug build/unit-test job, then verify on the target Android 13 arm64 device before enabling registration or Start/Stop.
