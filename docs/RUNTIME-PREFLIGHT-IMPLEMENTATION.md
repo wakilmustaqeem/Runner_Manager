@@ -13,7 +13,8 @@ This milestone adds fail-closed preflight checks and a detached manifest-signatu
 - Provides a streaming SHA-256 helper and strict 64-hex digest comparison for a future installer.
 - Verifies detached ECDSA/SHA-256 signatures over the exact manifest byte array, before any parsing is performed by a caller.
 - Restricts configured EC public keys to a 256-bit prime-field curve and rejects malformed/empty input.
-- Adds unit tests for trust/preflight failures, digest matching, valid signature, tampered manifest bytes, and malformed signature input.
+- Adds a pure archive-entry and symlink-target path policy that rejects absolute paths, Windows-style paths, traversal segments, and symlink targets that escape the archive root.
+- Adds unit tests for trust/preflight failures, digest matching, valid signature, tampered manifest bytes, malformed signature input, archive traversal, and symlink escape rejection.
 
 ## Manifest signature contract
 
@@ -40,6 +41,6 @@ DroidRunner's runtime signature authenticates artifacts published by DroidRunner
 1. Choose and pin the PRoot source commit and required loader files; review GPL-2.0 / LGPL-3.0 obligations and ship corresponding source/patches.
 2. Define a strict manifest schema including version, expiry, archive size, SHA-256, and runtime paths; verify signature before parsing and enforce anti-rollback policy.
 3. Download into app-private staging with size limits, resumable-download integrity, and SHA-256 validation.
-4. Reject archive traversal, symlinks escaping staging, unexpected rootfs paths, and missing runner executables.
+4. Integrate the path policy into an extractor that never follows archive-created symlinks during extraction; reject unexpected rootfs paths and missing runner executables.
 5. Keep the previous runtime intact until validation succeeds; recover safely after interrupted activation.
 6. Run one explicitly approved debug build and unit-test job, then verify on the target Android 13 arm64 device before enabling registration or Start/Stop.
