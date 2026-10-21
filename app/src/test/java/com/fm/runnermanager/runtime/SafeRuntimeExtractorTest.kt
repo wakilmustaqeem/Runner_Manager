@@ -2,7 +2,6 @@ package com.fm.runnermanager.runtime
 
 import java.io.ByteArrayInputStream
 import java.io.File
-import java.security.SecurityException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
