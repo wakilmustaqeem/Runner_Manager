@@ -1,6 +1,5 @@
 package com.fm.runnermanager.runtime
 
-import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -39,12 +38,12 @@ object RuntimeArtifactStager {
         stagingDir: File,
         minimumAllowedVersion: Long,
         nowEpochSeconds: Long = System.currentTimeMillis() / 1000L,
-        maxManifestBytes: Int = 256 * 1024,
+        maxManifestBytes: Int = StrictJson.MAX_INPUT_BYTES,
         maxArchiveBytes: Long = 2L * 1024L * 1024L * 1024L,
     ): StagedArtifact {
         requireHttps(manifestUrl)
         require(minimumAllowedVersion >= 0L) { "Invalid rollback floor" }
-        require(maxManifestBytes in 1..(1024 * 1024)) { "Invalid manifest size limit" }
+        require(maxManifestBytes in 1..StrictJson.MAX_INPUT_BYTES) { "Invalid manifest size limit" }
         require(maxArchiveBytes > 0L) { "Invalid archive size limit" }
 
         // Establish the staging boundary before any network access. A symlinked
@@ -72,16 +71,49 @@ object RuntimeArtifactStager {
         ) throw SecurityException("Runtime manifest signature verification failed")
 
         // Signature has been verified over the exact received bytes before parsing.
-        val manifestText = manifestBytes.toString(Charsets.UTF_8)
-        val manifest = JSONObject(manifestText)
-        if (manifest.optInt("schemaVersion", -1) != 1) {
+        val manifest = StrictJson.parseTopLevelObject(manifestBytes)
+
+        fun reqInt(name: String): Int {
+            val value = manifest.get(name)
+                ?: throw SecurityException("Missing $name")
+            if (value !is JsonNumber.IntegerValue) {
+                throw SecurityException("$name must be an integer token")
+            }
+            val number = value.toLongExact()
+                ?: throw SecurityException("$name overflows Long")
+            if (number < Int.MIN_VALUE || number > Int.MAX_VALUE) {
+                throw SecurityException("$name out of Int range")
+            }
+            return number.toInt()
+        }
+
+        fun reqLong(name: String): Long {
+            val value = manifest.get(name)
+                ?: throw SecurityException("Missing $name")
+            if (value !is JsonNumber.IntegerValue) {
+                throw SecurityException("$name must be an integer token")
+            }
+            return value.toLongExact()
+                ?: throw SecurityException("$name overflows Long")
+        }
+
+        fun reqString(name: String): String {
+            val value = manifest.get(name)
+                ?: throw SecurityException("Missing $name")
+            if (value !is JsonString) {
+                throw SecurityException("$name must be a string")
+            }
+            return value.value
+        }
+
+        if (reqInt("schemaVersion") != 1) {
             throw SecurityException("Unsupported runtime manifest schema")
         }
-        val version = manifest.optLong("version", -1L)
-        val expires = manifest.optLong("expiresAtEpochSeconds", -1L)
-        val archiveBytes = manifest.optLong("archiveBytes", -1L)
-        val archiveUrl = manifest.optString("archiveUrl", "")
-        val expectedSha256 = manifest.optString("archiveSha256", "")
+        val version = reqLong("version")
+        val expires = reqLong("expiresAtEpochSeconds")
+        val archiveBytes = reqLong("archiveBytes")
+        val archiveUrl = reqString("archiveUrl")
+        val expectedSha256 = reqString("archiveSha256")
 
         if (version <= 0L || version < minimumAllowedVersion) {
             throw SecurityException("Runtime version rejected by anti-rollback policy")
