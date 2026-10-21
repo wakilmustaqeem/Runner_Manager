@@ -15,8 +15,8 @@ This milestone adds fail-closed runtime preflight, detached manifest-signature v
 - Provides archive-entry and symlink-target path-policy checks.
 - Stages an archive only after signed-manifest verification, expiry/version/size checks, HTTPS-only no-redirect download, exact byte-count validation, and SHA-256 verification.
 - Adds `RuntimeActivationStore`, which re-hashes a staged archive and switches an app-private metadata pointer with best-effort rollback of the prior pointer if the pointer switch fails.
-- Adds `SafeRuntimeExtractor`, a fail-closed extraction sink for a future archive parser. It accepts only regular files and directories, rejects links and special files, rejects traversal/absolute paths, prevents overwrites, verifies declared sizes, and enforces entry/per-file/total byte limits.
-- Adds test source for preflight, digest/signature verification, path policy, metadata-pointer integrity, and extraction-sink boundaries.
+- Adds `SafeRuntimeExtractor`, a fail-closed extraction sink for a future archive parser. It extracts into a fresh sibling staging directory, rejects an existing destination rather than overwriting it, and publishes the directory only after all entries succeed. Failed extraction removes its unpublished staging tree. It accepts only regular files and directories, rejects links and special files, rejects traversal/absolute paths, prevents overwrites, verifies declared sizes, and enforces entry/per-file/total byte limits.
+- Adds test source for preflight, digest/signature verification, path policy, metadata-pointer integrity, and extraction-sink boundaries, including failure cleanup and destination preservation.
 
 ## Manifest contract
 
@@ -29,7 +29,7 @@ The stager expects signed UTF-8 JSON with `schemaVersion`, `version`, `expiresAt
 - `RuntimeActivationStore` switches metadata only. It does not unpack or execute a runtime and must not be treated as proof that a runner is online.
 - No production FM signing key, signed manifest/archive, PRoot binary or loader is configured or packaged.
 - No runner configuration/token exchange, foreground service, actual Start/Stop, boot recovery, or process supervision is wired.
-- No Build, Actions job, runtime download, or live registration was run.
+- No Build, Actions job, runtime download, or live registration was run. Test changes are source-only and remain unverified until an approved test run.
 
 ## Security decision
 
