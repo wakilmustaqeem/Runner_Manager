@@ -25,7 +25,7 @@ object RuntimeArchivePathValidator {
             return Result.Unsafe("control character in archive entry name")
         }
 
-        // ZIP directory entries conventionally end in one slash.
+        // TAR/ZIP directory entries conventionally end in one slash.
         val relative = if (entryName.endsWith('/')) entryName.dropLast(1) else entryName
         if (relative.isEmpty()) return Result.Unsafe("root directory entry is not allowed")
         if (relative.startsWith('/')) return Result.Unsafe("absolute archive path is not allowed")
