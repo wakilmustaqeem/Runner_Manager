@@ -47,6 +47,22 @@ object RuntimeArtifactStager {
         require(maxManifestBytes in 1..(1024 * 1024)) { "Invalid manifest size limit" }
         require(maxArchiveBytes > 0L) { "Invalid archive size limit" }
 
+        // Establish the staging boundary before any network access. A symlinked
+        // staging path could otherwise redirect downloaded runtime bytes outside
+        // app-private storage.
+        if (!stagingDir.exists() && !stagingDir.mkdirs()) {
+            throw IOException("Unable to create app-private staging directory")
+        }
+        if (!stagingDir.isDirectory || java.nio.file.Files.isSymbolicLink(stagingDir.toPath())) {
+            throw SecurityException("Runtime staging path must be a real directory")
+        }
+        val canonicalStaging = stagingDir.canonicalFile
+        val canonicalParent = stagingDir.absoluteFile.parentFile?.canonicalFile
+            ?: throw SecurityException("Runtime staging directory has no parent")
+        if (canonicalStaging.parentFile != canonicalParent) {
+            throw SecurityException("Runtime staging directory must remain a direct child of its parent")
+        }
+
         val manifestBytes = fetchBytes(manifestUrl, maxManifestBytes.toLong())
         if (!RuntimeManifestSignature.verify(
                 manifestBytes,
@@ -79,16 +95,15 @@ object RuntimeArtifactStager {
         }
         requireHttps(archiveUrl)
 
-        if (!stagingDir.exists() && !stagingDir.mkdirs()) {
-            throw IOException("Unable to create app-private staging directory")
-        }
-        if (!stagingDir.isDirectory) throw IOException("Staging path is not a directory")
         val requiredSpace = if (archiveBytes <= Long.MAX_VALUE / 3L) archiveBytes * 3L else Long.MAX_VALUE
         if (stagingDir.usableSpace < requiredSpace) {
             throw IOException("Insufficient staging storage for safe download and recovery")
         }
 
         val ready = File(stagingDir, "runtime-$version-${expectedSha256.lowercase().take(12)}.archive")
+        if (java.nio.file.Files.isSymbolicLink(ready.toPath())) {
+            throw SecurityException("Staged archive destination must not be a symbolic link")
+        }
         if (ready.exists()) {
             if (ready.length() == archiveBytes && RuntimePreflight.matchesSha256(ready, expectedSha256)) {
                 return StagedArtifact(version, ready, expectedSha256.lowercase(), archiveBytes)
