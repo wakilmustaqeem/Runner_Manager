@@ -31,6 +31,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import com.fm.runnermanager.adapters.GitHubDeviceFlowClient
+import com.fm.runnermanager.security.SecureGitHubSessionStore
 import java.util.concurrent.Executors
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -48,6 +49,7 @@ class MainActivity : Activity() {
     private val auditPreferences by lazy { getSharedPreferences("local_audit_metadata", MODE_PRIVATE) }
     private val historyPreferences by lazy { getSharedPreferences("local_activity_history", MODE_PRIVATE) }
     private val policyPreferences by lazy { getSharedPreferences("local_runner_policy", MODE_PRIVATE) }
+    private val secureSessions by lazy { SecureGitHubSessionStore(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var cpuLabel: TextView? = null
     private var ramLabel: TextView? = null
@@ -81,6 +83,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         renderDashboard()
         refreshMetrics()
+        restoreSavedSessions()
         handler.postDelayed(refreshTask, 3000L)
     }
 
@@ -367,6 +370,8 @@ class MainActivity : Activity() {
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Remove") { _, _ ->
                 githubTokensBySlot.remove(id)
+                secureSessions.clear(id)
+                preferences.edit().remove("github_client_id_" + id).apply()
                 githubReposBySlot.remove(id)
                 githubClientIds.remove(id)
                 githubLoginsBySlot.remove(id)
@@ -410,6 +415,7 @@ class MainActivity : Activity() {
         if (configuredClientId.isNotBlank()) {
             // Public app builds carry their own public Client ID; users never enter it.
             githubClientIds[slot] = configuredClientId
+            preferences.edit().putString("github_client_id_" + slot, configuredClientId).apply()
             startDeviceFlow(slot, configuredClientId)
             return
         }
@@ -431,6 +437,7 @@ class MainActivity : Activity() {
                     Toast.makeText(this, "Configure the GitHub App Client ID in this build.", Toast.LENGTH_LONG).show()
                 } else {
                     githubClientIds[slot] = clientId
+                    preferences.edit().putString("github_client_id_" + slot, clientId).apply()
                     startDeviceFlow(slot, clientId)
                 }
             }.show()
@@ -483,6 +490,11 @@ class MainActivity : Activity() {
                         val repos = client.repositories(token)
                         runOnUiThread {
                             if (isFinishing || isDestroyed) return@runOnUiThread
+                            val expiry = result.expiresInSeconds?.let { System.currentTimeMillis() / 1000L + it }
+                            secureSessions.save(
+                                slot,
+                                SecureGitHubSessionStore.Session(token, result.refreshToken, expiry)
+                            )
                             githubTokensBySlot[slot] = token
                             githubReposBySlot[slot] = repos
                             githubLoginsBySlot[slot] = identity.login
@@ -494,7 +506,7 @@ class MainActivity : Activity() {
                             }
                             recordActivity("github_account_connected_readonly", "SUCCESS", slot)
                             logAudit("github_account_connected_readonly")
-                            Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Token remains memory-only.", Toast.LENGTH_LONG).show()
+                            Toast.makeText(this, "Connected " + identity.login + "; loaded " + repos.size + " repositories. Session encrypted on this device.", Toast.LENGTH_LONG).show()
                         }
                         return@execute
                     }
@@ -522,6 +534,78 @@ class MainActivity : Activity() {
         }
     }
 
+
+    /**
+     * Restores encrypted sessions after process restart. Repository metadata is
+     * fetched again rather than trusted from stale disk data.
+     */
+    private fun restoreSavedSessions() {
+        val defaultClientId = BuildConfig.GITHUB_APP_CLIENT_ID.trim()
+        for (slot in accountIds()) {
+            val clientId = preferences.getString("github_client_id_" + slot, null)
+                ?.takeIf { it.isNotBlank() } ?: defaultClientId.takeIf { it.isNotBlank() }
+                ?: continue
+            val saved = secureSessions.load(slot) ?: continue
+            githubClientIds[slot] = clientId
+            githubTokensBySlot[slot] = saved.accessToken
+            githubExecutor.execute {
+                try {
+                    val client = GitHubDeviceFlowClient(clientId)
+                    val token = currentAccessToken(slot, client)
+                    val identity = client.identity(token)
+                    val repos = client.repositories(token)
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        githubTokensBySlot[slot] = token
+                        githubLoginsBySlot[slot] = identity.login
+                        githubReposBySlot[slot] = repos
+                        githubAccountSpinner?.adapter = neonAdapter(accountLabels())
+                        githubAccountSpinner?.setSelection(accountIds().indexOf(selectedAccount).coerceAtLeast(0), false)
+                        if (selectedAccount == slot) {
+                            updateRepositorySpinner()
+                            updateGitHubConnectionLabel()
+                        }
+                        recordActivity("github_session_restored_securely", "SUCCESS", slot)
+                        logAudit("github_session_restored_securely")
+                    }
+                } catch (_: Exception) {
+                    runOnUiThread {
+                        if (selectedAccount == slot) githubStatusLabel?.text = "Saved GitHub session needs refresh or reconnect"
+                        recordActivity("github_session_restore_needs_reauth", "NEEDS_REAUTH", slot)
+                        logAudit("github_session_restore_needs_reauth")
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Renews expiring OAuth user tokens when this GitHub App supports refresh
+     * tokens. Without a refresh token, the token remains usable only until expiry.
+     */
+    private fun currentAccessToken(slot: Int, client: GitHubDeviceFlowClient): String {
+        val saved = secureSessions.load(slot)
+            ?: return githubTokensBySlot[slot]?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("No saved GitHub session; connect this account again")
+        val now = System.currentTimeMillis() / 1000L
+        val expiry = saved.expiresAtEpochSeconds
+        if (expiry == null || expiry > now + 300L) return saved.accessToken
+        val refresh = saved.refreshToken
+            ?: if (expiry > now) return saved.accessToken
+            else throw IllegalStateException("GitHub access token expired; reconnect this account")
+        val result = client.refreshUserToken(refresh)
+        val access = result.accessToken
+            ?: throw IllegalStateException("GitHub session renewal was refused; reconnect this account")
+        val refreshed = SecureGitHubSessionStore.Session(
+            accessToken = access,
+            refreshToken = result.refreshToken ?: refresh,
+            expiresAtEpochSeconds = result.expiresInSeconds?.let { now + it } ?: expiry
+        )
+        secureSessions.save(slot, refreshed)
+        githubTokensBySlot[slot] = access
+        return access
+    }
+
     private fun refreshGitHubMetadata() {
         val slot = selectedAccount
         val token = githubTokensBySlot[slot]
@@ -529,23 +613,29 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Connect the selected account slot first.", Toast.LENGTH_SHORT).show()
             return
         }
-        val clientId = githubClientIds[slot] ?: return
-        githubStatusLabel?.text = "GitHub connection: Refreshing read-only metadata…"
+        val clientId = githubClientIds[slot]
+            ?: preferences.getString("github_client_id_" + slot, null)
+            ?: BuildConfig.GITHUB_APP_CLIENT_ID.takeIf { it.isNotBlank() }
+            ?: return
+        githubClientIds[slot] = clientId
+        githubStatusLabel?.text = "GitHub connection: Refreshing metadata…"
         githubExecutor.execute {
             try {
                 val client = GitHubDeviceFlowClient(clientId)
-                val identity = client.identity(token)
-                val repos = client.repositories(token)
+                val validToken = currentAccessToken(slot, client)
+                val identity = client.identity(validToken)
+                val repos = client.repositories(validToken)
                 val selectedPath = selectedRepositoryBySlot[slot]
                 val selectedRepo = repos.firstOrNull { it.owner + "/" + it.name == selectedPath }
-                val runs = if (selectedRepo == null) emptyList() else client.workflowRuns(token, selectedRepo.owner, selectedRepo.name)
+                val runs = if (selectedRepo == null) emptyList() else client.workflowRuns(validToken, selectedRepo.owner, selectedRepo.name)
                 // Runner listing can require stronger repository permissions than workflow-run metadata.
                 // Keep successful workflow data usable if the runner endpoint is unavailable.
                 val runnerResult = if (selectedRepo == null) null
-                    else runCatching { client.runners(token, selectedRepo.owner, selectedRepo.name) }
+                    else runCatching { client.runners(validToken, selectedRepo.owner, selectedRepo.name) }
                 val runners = runnerResult?.getOrNull().orEmpty()
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
+                    githubTokensBySlot[slot] = validToken
                     githubReposBySlot[slot] = repos
                     githubLoginsBySlot[slot] = identity.login
                     githubAccountSpinner?.adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, accountLabels())
