@@ -56,9 +56,11 @@ object InstalledRuntimeStore {
         }
 
         val installedDir = File(root, directoryName)
-        if (!installedDir.exists()) {
-            RuntimeArchiveInstaller.install(artifact, installedDir, extractor)
+        if (installedDir.exists() || Files.isSymbolicLink(installedDir.toPath())) {
+            // Do not trust a pre-existing directory merely because its name embeds a digest.
+            throw IOException("Installed runtime destination already exists; refusing unverified reuse")
         }
+        RuntimeArchiveInstaller.install(artifact, installedDir, extractor)
         validateInstalledDirectory(root, directoryName)
         val active = ActiveInstalledRuntime(artifact.version, directoryName, digest)
         writePointerTransactionally(root, active)
