@@ -1,6 +1,10 @@
 package com.fm.runnermanager.runtime
 
 import java.io.File
+import java.security.KeyPairGenerator
+import java.security.Signature
+import java.security.spec.ECGenParameterSpec
+import java.util.Base64
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -42,5 +46,26 @@ class RuntimePreflightTest {
         )
         assertFalse(result.ready)
         assertTrue(result.blockers.any { it.contains("arm64-v8a") })
+    }
+
+    @Test fun verifiesExactManifestBytesWithEcdsaP256() {
+        val generator = KeyPairGenerator.getInstance("EC")
+        generator.initialize(ECGenParameterSpec("secp256r1"))
+        val pair = generator.generateKeyPair()
+        val manifest = """{"version":1,"archive":"runtime.tar.zst"}""".toByteArray(Charsets.UTF_8)
+        val signer = Signature.getInstance("SHA256withECDSA")
+        signer.initSign(pair.private)
+        signer.update(manifest)
+        val signature = Base64.getEncoder().encodeToString(signer.sign())
+        val publicKey = Base64.getEncoder().encodeToString(pair.public.encoded)
+
+        assertTrue(RuntimeManifestSignature.verify(manifest, signature, publicKey))
+        assertFalse(RuntimeManifestSignature.verify(
+            """{"version":2,"archive":"runtime.tar.zst"}""".toByteArray(Charsets.UTF_8),
+            signature,
+            publicKey,
+        ))
+        assertFalse(RuntimeManifestSignature.verify(manifest, "not-base64", publicKey))
+        assertFalse(RuntimeManifestSignature.verify(manifest, signature, ""))
     }
 }
