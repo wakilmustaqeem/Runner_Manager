@@ -8,6 +8,10 @@ package com.fm.runnermanager.runner
  * runtime. Missing evidence always blocks activation.
  */
 object RunnerActivationGate {
+    private const val MAX_OWNER_LENGTH = 39
+    private const val MAX_REPOSITORY_LENGTH = 100
+    private const val MAX_REPOSITORY_PATH_LENGTH = MAX_OWNER_LENGTH + 1 + MAX_REPOSITORY_LENGTH
+
     enum class Blocker {
         USER_CONFIRMATION_REQUIRED,
         ACCOUNT_NOT_VERIFIED,
@@ -51,18 +55,32 @@ object RunnerActivationGate {
 
         val owner = evidence.repositoryOwner?.trim()
         val repository = evidence.repositoryName?.trim()
-        // The API returns owner/name as separate path segments. Reject malformed
-        // caller input rather than allowing an ambiguous repository identity.
+        // Owner and repository are separate GitHub path segments. Validate them
+        // before accepting the caller's repository verification flag.
         val validOwner = !owner.isNullOrEmpty() &&
             owner == evidence.repositoryOwner &&
-            '/' !in owner && '\\' !in owner &&
-            owner.none { it.isWhitespace() || it.isISOControl() }
+            owner.length <= MAX_OWNER_LENGTH &&
+            owner != "." && owner != ".." &&
+            owner.matches(Regex("[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?")) &&
+            !owner.contains("--")
+
         val validRepository = !repository.isNullOrEmpty() &&
             repository == evidence.repositoryName &&
+            repository.length <= MAX_REPOSITORY_LENGTH &&
+            repository != "." && repository != ".." &&
             '/' !in repository && '\\' !in repository &&
             repository.none { it.isWhitespace() || it.isISOControl() }
 
-        if (!validOwner || !validRepository || !evidence.repositoryVerified) {
+        val repositoryPathLength = if (validOwner && validRepository) {
+            owner!!.length + 1 + repository!!.length
+        } else {
+            Int.MAX_VALUE
+        }
+
+        if (!validOwner || !validRepository ||
+            repositoryPathLength > MAX_REPOSITORY_PATH_LENGTH ||
+            !evidence.repositoryVerified
+        ) {
             blockers += Blocker.REPOSITORY_NOT_VERIFIED
         }
 
