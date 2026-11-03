@@ -10,6 +10,7 @@ on:
       - feat/ui-history-complete-v1-2026-10-14
       - feat/github-readonly-connection-v1
       - fix/promote-runner-manager-to-main-2026-10-15
+      - fix/account-connect-no-response-v1
 
 permissions:
   contents: read
