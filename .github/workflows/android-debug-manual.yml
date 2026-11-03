@@ -10,6 +10,7 @@ on:
       - feat/ui-history-complete-v1-2026-10-14
       - feat/github-readonly-connection-v1
       - fix/promote-runner-manager-to-main-2026-10-15
+      - feat/persistent-runner-cache-2026-10-17
 
 permissions:
   contents: read
@@ -33,39 +34,51 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      # Download the command-line tools directly with curl retries because the
-      # setup-android action timed out while fetching the same Google archive.
-      - name: Download Android command-line tools with network retries
+      # Keep versioned Android SDK files in the runner user's persistent cache.
+      # Never delete an existing cache directory; stop if a versioned install is incomplete.
+      - name: Reuse or install Android command-line tools
         shell: bash
         run: |
           set -euo pipefail
-          export ANDROID_HOME="$RUNNER_TEMP/android-sdk"
+          cache_root="$HOME/.cache/fm-runner-manager"
+          export ANDROID_HOME="$cache_root/android-sdk-35"
           export ANDROID_SDK_ROOT="$ANDROID_HOME"
+          mkdir -p "$cache_root" "$ANDROID_HOME/cmdline-tools"
+          [ -w "$cache_root" ] || { echo "Persistent cache is not writable: $cache_root"; exit 1; }
           echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT" >> "$GITHUB_ENV"
-          archive="$RUNNER_TEMP/commandlinetools-linux.zip"
-          staging="$RUNNER_TEMP/android-cmdline-tools"
-          mkdir -p "$ANDROID_HOME/cmdline-tools" "$staging"
-          curl --fail --location --show-error \
-            --connect-timeout 30 --max-time 900 \
-            --retry 8 --retry-all-errors --retry-delay 10 \
-            "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip" \
-            --output "$archive"
-          (cd "$staging" && "$JAVA_HOME/bin/jar" xf "$archive")
-          sdkmanager_path="$(find "$staging" -type f -path '*/bin/sdkmanager' -print -quit)"
-          if [ -z "$sdkmanager_path" ]; then
-            echo "Could not find sdkmanager after extracting the downloaded archive."
-            echo "Extracted files (first 80):"
-            find "$staging" -maxdepth 5 -type f | head -80
-            exit 1
+          tools_dir="$ANDROID_HOME/cmdline-tools/12266719"
+          if [ -x "$tools_dir/bin/sdkmanager" ]; then
+            echo "Android command-line tools cache hit: $tools_dir"
+          else
+            if [ -e "$tools_dir" ]; then
+              echo "Versioned command-line tools cache exists but is incomplete; preserving it and stopping."
+              exit 1
+            fi
+            archive="$RUNNER_TEMP/commandlinetools-linux.zip"
+            staging="$RUNNER_TEMP/android-cmdline-tools"
+            rm -rf "$staging"
+            mkdir -p "$staging"
+            curl --fail --location --show-error \
+              --connect-timeout 30 --max-time 900 \
+              --retry 8 --retry-all-errors --retry-delay 10 \
+              "https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip" \
+              --output "$archive"
+            (cd "$staging" && "$JAVA_HOME/bin/jar" xf "$archive")
+            sdkmanager_path="$(find "$staging" -type f -path '*/bin/sdkmanager' -print -quit)"
+            if [ -z "$sdkmanager_path" ]; then
+              echo "Could not find sdkmanager after extracting the downloaded archive."
+              find "$staging" -maxdepth 5 -type f | head -80
+              exit 1
+            fi
+            cmdline_tools_dir="$(dirname "$(dirname "$sdkmanager_path")")"
+            mv "$cmdline_tools_dir" "$tools_dir"
+            chmod +x "$tools_dir/bin/sdkmanager"
+            echo "Installed Android command-line tools cache: $tools_dir"
           fi
-          cmdline_tools_dir="$(dirname "$(dirname "$sdkmanager_path")")"
-          rm -rf "$ANDROID_HOME/cmdline-tools/latest"
-          mv "$cmdline_tools_dir" "$ANDROID_HOME/cmdline-tools/latest"
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$tools_dir/bin" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
-          chmod +x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --version
+          "$tools_dir/bin/sdkmanager" --version
 
       - name: Accept licenses and install Android SDK components
         shell: bash
@@ -87,48 +100,56 @@ jobs:
           echo "Android SDK component installation failed after three attempts."
           exit 1
 
-      # Validate and extract Gradle with the Java 17 jar tool.
-      # This avoids depending on python3 or a system unzip in the PRoot runtime.
-      - name: Download, validate, and extract Gradle 8.9
+      # Reuse Gradle from a versioned persistent cache. Temporary extraction is
+      # separate; an existing cache is never removed or overwritten.
+      - name: Reuse or install Gradle 8.9
         shell: bash
         run: |
           set -euo pipefail
+          cache_root="$HOME/.cache/fm-runner-manager"
+          install_dir="$cache_root/gradle-8.9"
           archive="$RUNNER_TEMP/gradle-8.9-bin.zip"
           staging="$RUNNER_TEMP/gradle-extract"
-          install_dir="$RUNNER_TEMP/gradle-8.9"
           jar="$JAVA_HOME/bin/jar"
+          mkdir -p "$cache_root"
+          [ -w "$cache_root" ] || { echo "Persistent cache is not writable: $cache_root"; exit 1; }
           [ -x "$jar" ] || { echo "Java jar tool not found at $jar"; exit 1; }
-          rm -rf "$staging"
-          mkdir -p "$staging"
-          curl --fail --location --show-error \
-            --connect-timeout 30 --max-time 900 \
-            --retry 8 --retry-all-errors --retry-delay 10 \
-            "https://services.gradle.org/distributions/gradle-8.9-bin.zip" \
-            --output "$archive"
-          echo "Downloaded archive details:"
-          ls -lh "$archive"
-          sha256sum "$archive"
-          echo "Validating Gradle ZIP directory:"
-          "$jar" tf "$archive" > "$RUNNER_TEMP/gradle-archive-list.txt"
-          echo "ZIP entries: $(wc -l < "$RUNNER_TEMP/gradle-archive-list.txt")"
-          echo "Extracting Gradle ZIP with Java jar:"
-          (cd "$staging" && "$jar" xf "$archive")
-          echo "Gradle archive extraction completed."
-          # The jar tool may not preserve Unix executable bits from ZIP metadata.
-          chmod +x "$staging/gradle-8.9/bin/gradle"
-          if [ ! -x "$staging/gradle-8.9/bin/gradle" ]; then
-            echo "Expected Gradle launcher was not extracted."
-            find "$staging" -maxdepth 4 -type f | head -80
-            exit 1
+          if [ -x "$install_dir/bin/gradle" ]; then
+            echo "Gradle 8.9 cache hit: $install_dir"
+          else
+            if [ -e "$install_dir" ]; then
+              echo "Gradle cache exists but is incomplete; preserving it and stopping."
+              exit 1
+            fi
+            rm -rf "$staging"
+            mkdir -p "$staging"
+            curl --fail --location --show-error \
+              --connect-timeout 30 --max-time 900 \
+              --retry 8 --retry-all-errors --retry-delay 10 \
+              "https://services.gradle.org/distributions/gradle-8.9-bin.zip" \
+              --output "$archive"
+            echo "Downloaded Gradle archive details:"
+            ls -lh "$archive"
+            sha256sum "$archive"
+            "$jar" tf "$archive" > "$RUNNER_TEMP/gradle-archive-list.txt"
+            echo "ZIP entries: $(wc -l < "$RUNNER_TEMP/gradle-archive-list.txt")"
+            (cd "$staging" && "$jar" xf "$archive")
+            chmod +x "$staging/gradle-8.9/bin/gradle"
+            if [ ! -x "$staging/gradle-8.9/bin/gradle" ]; then
+              echo "Expected Gradle launcher was not extracted."
+              find "$staging" -maxdepth 4 -type f | head -80
+              exit 1
+            fi
+            mv "$staging/gradle-8.9" "$install_dir"
+            echo "Installed Gradle 8.9 cache: $install_dir"
           fi
-          rm -rf "$install_dir"
-          mv "$staging/gradle-8.9" "$install_dir"
           echo "$install_dir/bin" >> "$GITHUB_PATH"
           "$install_dir/bin/gradle" --version
 
-      # Google's Linux build-tools binaries target x86_64. Replace native tools
-      # with pinned ARM64 builds and verify every downloaded file before use.
-      - name: Install verified ARM64 Android build tools
+      # Android's Linux binaries target x86_64 on this runner. Reuse the verified
+      # ARM64 tools when hashes match; otherwise download to temporary staging and
+      # replace only the individual files after every checksum has passed.
+      - name: Reuse or install verified ARM64 Android build tools
         shell: bash
         run: |
           set -euo pipefail
@@ -146,16 +167,21 @@ jobs:
           172ecf6c4e93cc6f80a544f48b9a8fe770dd67f83b2f277504291cb4d1b82e3e  split-select
           d0688e26a0960b010c9702c4a4f6e53308d239a618b1dd0e5d0f4c5ad1c84fe6  zipalign
           EOF
-          for tool in aapt2 aidl split-select zipalign; do
-            curl --fail --location --show-error --connect-timeout 30 --max-time 300 \
-              --retry 5 --retry-all-errors --retry-delay 5 \
-              "$base/$tool" --output "$staging/$tool"
-          done
-          (cd "$staging" && sha256sum --check SHA256SUMS)
-          for tool in aapt2 aidl split-select zipalign; do
-            chmod +x "$staging/$tool"
-            install -m 0755 "$staging/$tool" "$sdk_tools/$tool"
-          done
+          if (cd "$sdk_tools" && sha256sum --check "$staging/SHA256SUMS" >/dev/null 2>&1); then
+            echo "Verified ARM64 Android build-tools cache hit."
+          else
+            echo "ARM64 build-tools cache miss; downloading and verifying replacements."
+            for tool in aapt2 aidl split-select zipalign; do
+              curl --fail --location --show-error --connect-timeout 30 --max-time 300 \
+                --retry 5 --retry-all-errors --retry-delay 5 \
+                "$base/$tool" --output "$staging/$tool"
+            done
+            (cd "$staging" && sha256sum --check SHA256SUMS)
+            for tool in aapt2 aidl split-select zipalign; do
+              chmod +x "$staging/$tool"
+              install -m 0755 "$staging/$tool" "$sdk_tools/$tool"
+            done
+          fi
           echo "ARM64 AAPT2 smoke test:"
           "$sdk_tools/aapt2" version
 
